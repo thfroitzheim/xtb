@@ -663,8 +663,6 @@ jobs:
                echo "$want not referenced by xtb.exe; skipping."
              fi
            done
-         env: 
-           INSTALL_PREFIX: ${{ env.PWD }}/xtb-bleed-windows
 
        - name: Create distributable zip
          run: |
