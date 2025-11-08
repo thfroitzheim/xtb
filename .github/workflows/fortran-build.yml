@@ -646,25 +646,27 @@ jobs:
            # sanity check
            test -f "xtb-bleed-windows/bin/xtb.exe" || { echo "::error::xtb.exe not found at $ROOT/bin"; find "$ROOT" -maxdepth 4 -name xtb.exe; exit 1; }
 
-# ROOT="$(pwd)/xtb-bleed-windows"
-# DESTDIR="$ROOT" 
-
        # Copy ONLY BLAS/LAPACK if xtb.exe imports them
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
+
            EXE="xtb-bleed-windows/bin/xtb.exe"
-           pwd
            [ -f "$EXE" ] || { echo "::error::$EXE not found after install"; exit 1; }
-           mapfile -t imports < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]')
+
            for want in libblas.dll liblapack.dll; do
-             if printf "%s\n" "${imports[@]}" | grep -qx "$want"; then
-               path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
+             if objdump -p "$EXE" \
+                  | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//Ip' \
+                  | tr -d '\r' \
+                  | tr '[:upper:]' '[:lower:]' \
+                  | grep -qxF "$want"
+             then
+               path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} {gsub(/\r$/,""); if ($1==want) {print $3; exit}}')"
                if [ -n "${path:-}" ] && [ -f "$path" ]; then
                  echo "Bundling $want from $path"
                  cp -n "$path" "xtb-bleed-windows/bin/"
                else
-                 echo "::warning::$want referenced but could not be resolved with ntldd"
+                 echo "::warning::$want referenced but ntldd could not resolve a path"
                fi
              else
                echo "$want not referenced by xtb.exe; skipping."
