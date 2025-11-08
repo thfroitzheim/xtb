@@ -631,12 +631,14 @@ jobs:
  
        - name: Run unit tests
          run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+           echo ${{ env.PWD }}
          env:
            OMP_NUM_THREADS: 2
  
        - name: Install package
          run: |
            meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+           echo ${{ env.PWD }}
          env:
            DESTDIR: xtb-bleed-windows
 
@@ -644,7 +646,10 @@ jobs:
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
+           
            EXE="../xtb-bleed-windows/bin/xtb.exe"
+           echo ${{ env.PWD }}
+           echo ${EXE}
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
