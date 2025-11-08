@@ -627,10 +627,13 @@ jobs:
            LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
 
        - name: Build project
-         run: meson compile -C ${{ env.BUILD_DIR }}
+         run: |
+           meson compile -C ${{ env.BUILD_DIR }}
+           echo ${{ env.PWD }}
  
        - name: Run unit tests
-         run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+         run: |
+           meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
            echo ${{ env.PWD }}
          env:
            OMP_NUM_THREADS: 2
