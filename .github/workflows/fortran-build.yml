@@ -611,7 +611,7 @@ jobs:
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
-           --prefix="$INSTALL_PREFIX"
+           --prefix=${{ env.INSTALL_PREFIX }}
            --libdir=lib
            -Ddefault_library=static
            -Dlapack=netlib
@@ -645,7 +645,7 @@ jobs:
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
-           EXE="$INSTALL_PREFIX/bin/xtb.exe"
+           EXE="${{ env.INSTALL_PREFIX }}/bin/xtb.exe"
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
@@ -655,7 +655,7 @@ jobs:
                path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
                if [ -n "${path:-}" ] && [ -f "$path" ]; then
                  echo "Bundling $want from $path"
-                 cp -n "$path" "$INSTALL_PREFIX/bin/"
+                 cp -n "$path" "${{ env.INSTALL_PREFIX }}/bin/"
                else
                  echo "::warning::$want referenced but could not be resolved with ntldd"
                fi
@@ -663,6 +663,8 @@ jobs:
                echo "$want not referenced by xtb.exe; skipping."
              fi
            done
+         env: 
+           INSTALL_PREFIX: ${{ env.PWD }}/xtb-bleed-windows
 
        - name: Create distributable zip
          run: |
