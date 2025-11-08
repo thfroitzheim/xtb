@@ -475,54 +475,81 @@ jobs:
            echo "Found: $EXE"
            echo "EXE=$EXE" >> "$GITHUB_ENV"
                 
-       # Bundle exe + all runtime DLLs (recursively)
-       - name: Bundle DLLs next to the binary
+       # --- Replace the "Bundle DLLs next to the binary" step with this ---
+       - name: Bundle only direct DLL dependencies
          shell: msys2 {0}
          run: |
            set -euo pipefail
            mkdir -p bundle/bin
            cp "$EXE" bundle/bin/
-                
-           # Recursively resolve deps, keep only non-system DLLs, copy once
-           mapfile -t deps < <(ntldd -R "$EXE" | awk '/=>/ {print $3}')
-           for dep in "${deps[@]}"; do
-             # Skip entries that weren't resolved or are Windows system dirs
-             [ "$dep" = "not" ] && continue
-             case "$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')" in
-               *:/windows/system32/*|*:/windows/syswow64/*|*/winsxs/*) continue ;;
-             esac
-             if [ -f "$dep" ]; then
-               cp -n "$dep" bundle/bin/
+       
+           # Collect direct imports from the EXE import table
+           mapfile -t direct < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p')
+       
+           # Windows/system DLLs to ignore (case-insensitive match)
+           ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
+       
+           # Resolve each direct import to a path with ntldd and copy it
+           for name in "${direct[@]}"; do
+             low="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+             if echo "$low" | grep -Eq "$ignore_re"; then
+               continue
+             fi
+             # Find the resolved path of this exact direct import
+             path="$(ntldd "$EXE" | awk -v want="$low" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
+             if [ -n "${path:-}" ] && [ "$path" != "not" ] && [ -f "$path" ]; then
+               echo "Bundling $(basename "$path")"
+               cp -n "$path" bundle/bin/
+             else
+               echo "::warning::Could not resolve direct import $name"
              fi
            done
-                
-           # If libiomp5md.dll exists anywhere in the tree but wasn't pulled in above, add it
-           shopt -s nullglob
-           for cand in **/libiomp5md.dll **/LIBIOMP5MD.DLL; do
-             [ -f "$cand" ] && cp -n "$cand" bundle/bin/
-           done
-                
-       # Verify: all non-system deps are co-located (no missing MinGW runtimes)
-       - name: Verify bundled dependencies
+
+       # --- Optional but useful: print whether OpenMP is present ---
+       - name: Report OpenMP runtime (detected)
+         shell: msys2 {0}
+         run: |
+           set -euo pipefail
+           need="$(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]' | grep -E 'libgomp|libiomp5md' || true)"
+           if [ -n "$need" ]; then
+             echo "OpenMP runtime detected in import table: $need"
+           else
+             echo "No OpenMP runtime DLL in import table (OpenMP disabled or linked statically)."
+           fi
+             
+       # --- Replace the "Verify bundled dependencies" step with this ---
+       - name: Verify bundled direct dependencies only
          shell: msys2 {0}
          run: |
            set -euo pipefail
            pushd bundle/bin >/dev/null
+       
+           ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
+       
+           # Build allowlist = direct imports (lowercased, excluding system)
+           mapfile -t allowed < <(objdump -p xtb.exe | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]' | grep -Ev "$ignore_re")
+       
+           # 1) Every allowed DLL must exist in the bundle
            missing=0
-           mapfile -t resolved < <(ntldd -R xtb.exe | awk '/=>/ {print $3}')
-           for dep in "${resolved[@]}"; do
-             [ "$dep" = "not" ] && continue
-             low="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
-             # ignore system dlls
-             if [[ "$low" =~ :/windows/system32/|:/windows/syswow64/|/winsxs/ ]]; then
-               continue
+           for name in "${allowed[@]}"; do
+             if [ ! -f "$name" ]; then
+               # try case-insensitive match
+               if ! ls -1 | tr '[:upper:]' '[:lower:]' | grep -qx "$name"; then
+                 echo "::error::Missing direct dependency $name in bundle/bin"
+                 missing=1
+               fi
              fi
-             base="$(basename "$dep")"
-             if [ ! -f "$base" ]; then
-               echo "::error::Missing dependency $base in bundle/bin"
+           done
+       
+           # 2) No extra DLLs are present (keep bundle minimal)
+           for f in *.dll 2>/dev/null; do
+             lf="$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')"
+             if ! printf "%s\n" "${allowed[@]}" | grep -qx "$lf"; then
+               echo "::error::Extra DLL bundled that is not a direct import: $f"
                missing=1
              fi
            done
+       
            popd >/dev/null
            [ $missing -eq 0 ]
                 
