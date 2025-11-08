@@ -432,54 +432,89 @@ jobs:
      defaults:
        run:
          shell: cmd
+     env:
+       BUILD_DIR: _build
+       OUTPUT_WINDOWS_INTEL: xtb-bleed-windows-intel.zip
      steps:
-       - name: Checkout code
+       - name: Checkout
          uses: actions/checkout@v4
- 
-       # Install Intel ifx/icx (and VS build tools are already on the runner)
-       - name: Setup Intel Fortran (ifx) and C (icx)
-         uses: fortran-lang/setup-fortran@v1
-         with:
-           compiler: intel
-           version: '2025.2'   # or '2024.1' if you prefer
- 
-       - name: Setup Python + Meson/Ninja
-         uses: actions/setup-python@v5
-         with:
-           python-version: '3.x'
-       - run: pip install meson==1.7.0 ninja
- 
-       # Configure: static MSVC runtime, MKL LAPACK, OpenMP (try static OpenMP)
-       - name: Configure build (Intel static)
+   
+       # oneAPI is preinstalled on windows-latest; call setvars to wire env
+       - name: Initialize Intel oneAPI environment
+         shell: cmd
+         run: |
+           IF EXIST "%ONEAPI_ROOT%\setvars.bat" (
+             call "%ONEAPI_ROOT%\setvars.bat" intel64
+           ) ELSE (
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
+           )
+           rem Persist environment for later steps
+           set > "%GITHUB_ENV%"
+   
+       - name: Configure (Meson, Intel toolchain, MKL, OpenMP)
+         shell: cmd
          env:
-           FC: ifx
            CC: icx
+           CXX: icx
+           FC: ifx
          run: >
            meson setup %BUILD_DIR%
            --prefix="%CD%\xtb-bleed-windows-intel"
            --libdir=lib
            -Ddefault_library=static
            -Dlapack=mkl
-           -Db_vscrt=static
+           -Db_vscrt=mt
            --buildtype=release
-           --optimization=2
            --warnlevel=0
-           -Dfortran_link_args="/Qopenmp /Qopenmp-link:static /Qmkl /Qstatic-intel"
- 
+           -Dfortran_args="/Qopenmp"
+           -Dc_args="/Qopenmp"
+           -Dfortran_link_args="/Qopenmp-link:static /Qstatic-intel /Qmkl:parallel"
+           -Dc_link_args="/Qopenmp-link:static"
+   
        - name: Build
+         shell: cmd
          run: meson compile -C %BUILD_DIR%
- 
-       - name: Test
-         run: meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
+   
+       - name: Tests
+         shell: cmd
          env:
            OMP_NUM_THREADS: 2
- 
+         run: meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
+   
        - name: Install
+         shell: cmd
          run: meson install -C %BUILD_DIR% --no-rebuild
- 
-       - name: Create distributable zip
-         run: powershell -Command "Compress-Archive -Path 'xtb-bleed-windows-intel\*' -DestinationPath 'xtb-bleed-windows-intel.zip' -Force"
- 
+   
+       # Optional: if anything still pulls DLLs (e.g. MKL/OpenMP), copy them in
+       - name: Bundle MKL/OpenMP DLLs if referenced
+         shell: powershell
+         run: |
+           $exe = "xtb-bleed-windows-intel\bin\xtb.exe"
+           if (!(Test-Path $exe)) { Write-Error "$exe not found after install"; exit 1 }
+           $deps = & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\dumpbin.exe" /DEPENDENTS $exe 2>$null | Select-String -Pattern '\.dll' | % { $_.ToString().Trim() }
+           $need = @('mkl_rt.dll','mkl_core.dll','mkl_intel_thread.dll','libiomp5md.dll')
+           foreach ($n in $need) {
+             if ($deps -match [Regex]::Escape($n)) {
+               $found = Get-Command $n -ErrorAction SilentlyContinue
+               if (-not $found) {
+                 # search common MKL bin dirs
+                 $cands = @(
+                   "$env:ONEAPI_ROOT\mkl\latest\redist\intel64",
+                   "$env:ONEAPI_ROOT\runtime\latest\redist\intel64\compiler"
+                 )
+                 foreach ($d in $cands) {
+                   if (Test-Path "$d\$n") { Copy-Item "$d\$n" "xtb-bleed-windows-intel\bin\" -Force; break }
+                 }
+               } else {
+                 Copy-Item $found.Path "xtb-bleed-windows-intel\bin\" -Force
+               }
+             }
+           }
+   
+       - name: Zip
+         shell: powershell
+         run: Compress-Archive -Path xtb-bleed-windows-intel -DestinationPath $env:OUTPUT_WINDOWS_INTEL -Force
+   
        - name: Upload artifact
          if: github.event_name == 'push'
          uses: actions/upload-artifact@v4
@@ -488,148 +523,68 @@ jobs:
            path: xtb-bleed-windows-intel.zip
 
    # Inspired from https://github.com/endless-sky/endless-sky
-   # continuous-delivery:
-   #    if: github.event_name == 'push'
-   #    runs-on: ubuntu-latest
-   #    needs:
-   #       - intel-meson-build
-   #    env:
-   #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-   #       RELEASE_TAG: bleed
-   #       OUTPUT_INTEL: xtb-bleed.tar.xz
-   #    steps:
-   #       - uses: actions/checkout@v4
-   #       - name: Install github-release
-   #         run: |
-   #          go install github.com/github-release/github-release@latest
-   #          echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-   #          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-   #       - name: Set environment variables
-   #         run: |
-   #          echo "GITHUB_USER=$( echo ${{ github.repository }} | cut -d/ -f1 )" >> $GITHUB_ENV
-   #          echo "GITHUB_REPO=$( echo ${{ github.repository }} | cut -d/ -f2 )" >> $GITHUB_ENV
-   #       - name: Move/Create continuous tag
-   #         run: |
-   #          git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
-   #          git push --tags --force
-   #       - name: Get Time
-   #         run: echo "TIME=$(date -u '+%Y/%m/%d, %H:%M')" >> $GITHUB_ENV
-   #       - name: Check continuous release status
-   #         run: |
-   #          if ! github-release info -t ${{ env.RELEASE_TAG }} > /dev/null 2>&1; then
-   #             echo "RELEASE_COMMAND=release" >> $GITHUB_ENV
-   #          else
-   #             echo "RELEASE_COMMAND=edit" >> $GITHUB_ENV
-   #          fi
-   #       - name: Setup continuous release
-   #         run: >-
-   #          github-release ${{ env.RELEASE_COMMAND }} --tag ${{ env.RELEASE_TAG }} --name "Bleeding edge version" --description "$DESCRIPTION" --pre-release
-   #         env:
-   #          DESCRIPTION: |
-   #             Created on ${{ env.TIME }} UTC by @${{ github.actor }} with commit ${{ github.sha }}.
-   #             This is an automated distribution of the latest `xtb` version. This version is only minimally tested and may be unstable or even crash. Use with caution!
-   #             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-   #       - name: Download Artifacts
-   #         uses: actions/download-artifact@v4.1.7
-   #         with:
-   #          path: ${{ github.workspace }} # This will download all files
-   #       - name: Create SHA256 checksum
-   #         run: |
-   #          cd ${{ env.OUTPUT_INTEL }}
-   #          sha256sum ${{ env.OUTPUT_INTEL }} > sha256.txt
-   #       - name: Add ${{ env.OUTPUT_INTEL }} to release tag
-   #         run: >-
-   #          github-release upload --tag ${{ env.RELEASE_TAG }} --replace --name ${{ env.OUTPUT_INTEL }} --file ${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}
-   #       - name: Add SHA256 checksums to release tag
-   #         run: >-
-   #          github-release upload --tag ${{ env.RELEASE_TAG }} --replace --name sha256.txt --file ${{ env.OUTPUT_INTEL }}/sha256.txt
-
    continuous-delivery:
-     if: github.event_name == 'push'
-     runs-on: ubuntu-latest
-     needs:
-       - intel-meson-build
-       - mingw-meson-static-build
-     env:
-       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-       RELEASE_TAG: bleed
-       OUTPUT_INTEL: xtb-bleed.tar.xz
-       OUTPUT_WINDOWS: xtb-bleed-windows.zip
-     steps:
-       - uses: actions/checkout@v4
-       - name: Install github-release
-         run: |
-           go install github.com/github-release/github-release@latest
-           echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-       - name: Set environment variables
-         run: |
-           echo "GITHUB_USER=$( echo ${{ github.repository }} | cut -d/ -f1 )" >> $GITHUB_ENV
-           echo "GITHUB_REPO=$( echo ${{ github.repository }} | cut -d/ -f2 )" >> $GITHUB_ENV
-       - name: Move/Create continuous tag
-         run: |
-           git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
-           git push --tags --force
-       - name: Get Time
-         run: echo "TIME=$(date -u '+%Y/%m/%d, %H:%M')" >> $GITHUB_ENV
-       - name: Check continuous release status
-         run: |
-           if ! github-release info -t ${{ env.RELEASE_TAG }} > /dev/null 2>&1; then
-             echo "RELEASE_COMMAND=release" >> $GITHUB_ENV
-           else
-             echo "RELEASE_COMMAND=edit" >> $GITHUB_ENV
-           fi
-       - name: Setup continuous release
-         run: >
-           github-release ${{ env.RELEASE_COMMAND }}
-           --tag ${{ env.RELEASE_TAG }}
-           --name "Bleeding edge version"
-           --description "$DESCRIPTION"
-           --pre-release
-         env:
-           DESCRIPTION: |
-             Created on ${{ env.TIME }} UTC by @${{ github.actor }} with commit ${{ github.sha }}.
-             This is an automated distribution of the latest `xtb` version. This version is only minimally tested and may be unstable or even crash. Use with caution!
-             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }} 
-       - name: Download all build artifacts
-         uses: actions/download-artifact@v4
-         with:
-           path: ${{ github.workspace }}
-       - name: Create SHA256 checksums
-         run: |
-           sha256sum "${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}" > "${{ env.OUTPUT_INTEL }}.sha256"
-           sha256sum "${{ env.OUTPUT_WINDOWS }}/${{ env.OUTPUT_WINDOWS }}" > "${{ env.OUTPUT_WINDOWS }}.sha256"
-           ls -al
-       # Artifacts are placed under directories named after the artifact.
-       # e.g. xtb-bleed.tar.xz/xtb-bleed.tar.xz and xtb-bleed-windows.zip/xtb-bleed-windows.zip
-       - name: Upload Linux (Intel) tarball
-         run: >
-           github-release upload
-           --tag ${{ env.RELEASE_TAG }}
-           --replace
-           --name ${{ env.OUTPUT_INTEL }}
-           --file "${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}"
- 
-       - name: Upload Windows zip
-         run: >
-           github-release upload
-           --tag ${{ env.RELEASE_TAG }}
-           --replace
-           --name ${{ env.OUTPUT_WINDOWS }}
-           --file "${{ env.OUTPUT_WINDOWS }}/${{ env.OUTPUT_WINDOWS }}"
-
-       - name: Upload Linux checksum
-         run: >
-           github-release upload
-           --tag ${{ env.RELEASE_TAG }}
-           --replace
-           --name ${{ env.OUTPUT_INTEL }}.sha256
-           --file ${{ env.OUTPUT_INTEL }}.sha256
- 
-       - name: Upload Windows checksum
-         run: >
-           github-release upload
-           --tag ${{ env.RELEASE_TAG }}
-           --replace
-           --name ${{ env.OUTPUT_WINDOWS }}.sha256
-           --file ${{ env.OUTPUT_WINDOWS }}.sha256
+      if: github.event_name == 'push'
+      runs-on: ubuntu-latest
+      needs:
+         - intel-meson-build
+         - mingw-meson-static-build
+      env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+         RELEASE_TAG: bleed
+         OUTPUT_INTEL: xtb-bleed.tar.xz
+         OUTPUT_WINDOWS: xtb-bleed-windows.zip
+      steps:
+         - uses: actions/checkout@v4
+         - name: Install github-release
+           run: |
+            go install github.com/github-release/github-release@latest
+            echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+            echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+         - name: Set environment variables
+           run: |
+            echo "GITHUB_USER=$( echo ${{ github.repository }} | cut -d/ -f1 )" >> $GITHUB_ENV
+            echo "GITHUB_REPO=$( echo ${{ github.repository }} | cut -d/ -f2 )" >> $GITHUB_ENV
+         - name: Move/Create continuous tag
+           run: |
+            git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
+            git push --tags --force
+         - name: Get Time
+           run: echo "TIME=$(date -u '+%Y/%m/%d, %H:%M')" >> $GITHUB_ENV
+         - name: Check continuous release status
+           run: |
+            if ! github-release info -t ${{ env.RELEASE_TAG }} > /dev/null 2>&1; then
+               echo "RELEASE_COMMAND=release" >> $GITHUB_ENV
+            else
+               echo "RELEASE_COMMAND=edit" >> $GITHUB_ENV
+            fi
+         - name: Setup continuous release
+           run: >-
+            github-release ${{ env.RELEASE_COMMAND }} --tag ${{ env.RELEASE_TAG }} --name "Bleeding edge version" --description "$DESCRIPTION" --pre-release
+           env:
+            DESCRIPTION: |
+               Created on ${{ env.TIME }} UTC by @${{ github.actor }} with commit ${{ github.sha }}.
+               This is an automated distribution of the latest `xtb` version. This version is only minimally tested and may be unstable or even crash. Use with caution!
+               https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+         - name: Download Artifacts
+           uses: actions/download-artifact@v4.1.7
+           with:
+            path: ${{ github.workspace }} # This will download all files
+         - name: Create SHA256 checksums
+           run: |
+            cd ${{ env.OUTPUT_INTEL }}
+            sha256sum ${{ env.OUTPUT_INTEL }} > "${{ env.OUTPUT_INTEL }}.sha256"
+            cd ${{ env.OUTPUT_WINDOWS }}
+            sha256sum ${{ env.OUTPUT_WINDOWS }} > "${{ env.OUTPUT_WINDOWS }}.sha256"
+         - name: Add ${{ env.OUTPUT_INTEL }} to release tag
+           run: >-
+            github-release upload --tag ${{ env.RELEASE_TAG }} --replace --name ${{ env.OUTPUT_INTEL }} --file ${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}
+         - name: Add ${{ env.OUTPUT_INTEL }} SHA256 checksums to release tag
+           run: >-
+            github-release upload --tag ${{ env.RELEASE_TAG }} --replace --name "${{ env.OUTPUT_INTEL }}.sha256" --file ${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}.sha256
+         - name: Add ${{ env.OUTPUT_WINDOWS }} to release tag
+           run: >-
+            github-release upload --tag ${{ env.RELEASE_TAG }} --replace --name ${{ env.OUTPUT_WINDOWS }} --file ${{ env.OUTPUT_WINDOWS }}/${{ env.OUTPUT_WINDOWS }}
+         - name: Add ${{ env.OUTPUT_WINDOWS }} SHA256 checksums to release tag
+           run: >-
+            github-release upload --tag ${{ env.RELEASE_TAG }} --replace --name "${{ env.OUTPUT_WINDOWS }}.sha256" --file ${{ env.OUTPUT_WINDOWS }}/${{ env.OUTPUT_WINDOWS }}.sha256
