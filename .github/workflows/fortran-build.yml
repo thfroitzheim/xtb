@@ -435,81 +435,55 @@ jobs:
      env:
        BUILD_DIR: _build
        OUTPUT_WINDOWS_INTEL: xtb-bleed-windows-intel.zip
+   
      steps:
        - name: Checkout
          uses: actions/checkout@v4
    
-       # oneAPI is preinstalled on windows-latest; call setvars to wire env
-       - name: Initialize Intel oneAPI environment
-         shell: cmd
-         run: |
-           IF EXIST "%ONEAPI_ROOT%\setvars.bat" (
-             call "%ONEAPI_ROOT%\setvars.bat" intel64
-           ) ELSE (
-             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
-           )
-           rem Persist environment for later steps
-           set > "%GITHUB_ENV%"
+       - name: Setup Python
+         uses: actions/setup-python@v5
+         with:
+           python-version: '3.x'
    
-       - name: Configure (Meson, Intel toolchain, MKL, OpenMP)
-         shell: cmd
+       - name: Install Meson & Ninja
+         run: pip install meson==1.7.0 ninja
+   
+       - name: Configure (Intel ifx/icx, MKL, OpenMP, static CRT)
          env:
            CC: icx
            CXX: icx
            FC: ifx
-         run: >
-           meson setup %BUILD_DIR%
-           --prefix="%CD%\xtb-bleed-windows-intel"
-           --libdir=lib
-           -Ddefault_library=static
-           -Dlapack=mkl
-           -Db_vscrt=mt
-           --buildtype=release
-           --warnlevel=0
-           -Dfortran_args="/Qopenmp"
-           -Dc_args="/Qopenmp"
-           -Dfortran_link_args="/Qopenmp-link:static /Qstatic-intel /Qmkl:parallel"
-           -Dc_link_args="/Qopenmp-link:static"
+         run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
+           meson setup %BUILD_DIR% ^
+             --prefix="%CD%\xtb-bleed-windows-intel" ^
+             --libdir=lib ^
+             -Ddefault_library=static ^
+             -Dlapack=mkl ^
+             -Db_vscrt=mt ^
+             --buildtype=release ^
+             --warnlevel=0 ^
+             -Dfortran_args="/Qopenmp" ^
+             -Dc_args="/Qopenmp" ^
+             -Dfortran_link_args="/Qopenmp-link:static /Qstatic-intel /Qmkl:parallel" ^
+             -Dc_link_args="/Qopenmp-link:static"
    
        - name: Build
-         shell: cmd
-         run: meson compile -C %BUILD_DIR%
+         run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
+           meson compile -C %BUILD_DIR%
    
-       - name: Tests
-         shell: cmd
+       - name: Test
          env:
            OMP_NUM_THREADS: 2
-         run: meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
+         run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
+           meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
    
        - name: Install
-         shell: cmd
-         run: meson install -C %BUILD_DIR% --no-rebuild
-   
-       # Optional: if anything still pulls DLLs (e.g. MKL/OpenMP), copy them in
-       - name: Bundle MKL/OpenMP DLLs if referenced
-         shell: powershell
          run: |
-           $exe = "xtb-bleed-windows-intel\bin\xtb.exe"
-           if (!(Test-Path $exe)) { Write-Error "$exe not found after install"; exit 1 }
-           $deps = & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\dumpbin.exe" /DEPENDENTS $exe 2>$null | Select-String -Pattern '\.dll' | % { $_.ToString().Trim() }
-           $need = @('mkl_rt.dll','mkl_core.dll','mkl_intel_thread.dll','libiomp5md.dll')
-           foreach ($n in $need) {
-             if ($deps -match [Regex]::Escape($n)) {
-               $found = Get-Command $n -ErrorAction SilentlyContinue
-               if (-not $found) {
-                 # search common MKL bin dirs
-                 $cands = @(
-                   "$env:ONEAPI_ROOT\mkl\latest\redist\intel64",
-                   "$env:ONEAPI_ROOT\runtime\latest\redist\intel64\compiler"
-                 )
-                 foreach ($d in $cands) {
-                   if (Test-Path "$d\$n") { Copy-Item "$d\$n" "xtb-bleed-windows-intel\bin\" -Force; break }
-                 }
-               } else {
-                 Copy-Item $found.Path "xtb-bleed-windows-intel\bin\" -Force
-               }
-             }
-           }
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
+           meson install -C %BUILD_DIR% --no-rebuild
    
        - name: Zip
          shell: powershell
