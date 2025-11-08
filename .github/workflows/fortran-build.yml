@@ -610,8 +610,11 @@ jobs:
        # Force a flat install root like on Linux: /bin, /lib, /share under DESTDIR
        - name: Configure build (static)
          run: >
+           set -euo pipefail
+           INSTALL_PREFIX="$PWD/xtb-bleed-windows"
+           echo "INSTALL_PREFIX=$INSTALL_PREFIX" >> "$GITHUB_ENV"
            meson setup ${{ env.BUILD_DIR }}
-           --prefix=/
+           --prefix="$INSTALL_PREFIX"
            --libdir=lib
            -Ddefault_library=static
            -Dlapack=netlib
@@ -625,7 +628,7 @@ jobs:
            FFLAGS: "-fno-strict-aliasing"
            # Fully static toolchain libs; BLAS/LAPACK remain DLLs if linked that way
            LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
- 
+
        - name: Build project
          run: meson compile -C ${{ env.BUILD_DIR }}
  
@@ -640,22 +643,21 @@ jobs:
          env:
            DESTDIR: ${{ env.PWD }}/xtb-bleed-windows
 
-       # Copy ONLY the explicitly imported BLAS/LAPACK DLLs (skip system DLLs)
+       # Copy ONLY direct BLAS/LAPACK if xtb.exe actually imports them
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
-           EXE="${{ env.PWD }}/xtb-bleed-windows/bin/xtb.exe"
+           EXE="$INSTALL_PREFIX/bin/xtb.exe"
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
- 
            mapfile -t imports < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]')
            for want in libblas.dll liblapack.dll; do
              if printf "%s\n" "${imports[@]}" | grep -qx "$want"; then
                path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
                if [ -n "${path:-}" ] && [ -f "$path" ]; then
                  echo "Bundling $want from $path"
-                 cp -n "$path" "${{ env.PWD }}/xtb-bleed-windows/bin/"
+                 cp -n "$path" "$INSTALL_PREFIX/bin/"
                else
                  echo "::warning::$want referenced but could not be resolved with ntldd"
                fi
@@ -675,6 +677,7 @@ jobs:
          with:
            name: xtb-bleed-windows.zip
            path: xtb-bleed-windows.zip
+
 
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
