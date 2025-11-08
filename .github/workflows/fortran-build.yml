@@ -443,27 +443,96 @@ jobs:
            # Strip binaries to shrink the artifact
            if [ -f "install/mingw64/bin/xtb.exe" ]; then x86_64-w64-mingw32-strip install/mingw64/bin/xtb.exe || true; fi
            bsdtar -acf xtb-windows-static.zip -C install .
-         
-       # Sanity check: ensure no MinGW runtime DLLs are required
-       - name: Verify static runtime (no MinGW DLL deps)
+
+       # Ensure tools we use are available
+       - name: Install helper tools
+         shell: msys2 {0}
          run: |
-           EXE="install/mingw64/bin/xtb.exe"
-           if [ -f "$EXE" ]; then
-             echo "Checking $EXE for DLL dependencies…"
-             objdump -p "$EXE" | tr -d '\r' | awk '/DLL Name:/ {print $3}' | tee deps.txt
-             if grep -Eiq 'libgcc_s|libstdc\+\+|libgfortran|libwinpthread' deps.txt; then
-               echo "::error::Found dynamic MinGW runtime dependencies; build is not fully static."
-               exit 1
-             fi
-           else
-             echo "::warning::Executable not found at $EXE (install layout may differ). Skipping check."
+           set -euo pipefail
+           pacman -S --noconfirm --needed mingw-w64-x86_64-ntldd zip
+                
+       # Locate xtb.exe regardless of layout
+       - name: Locate xtb.exe
+         shell: msys2 {0}
+         run: |
+           set -euo pipefail
+           shopt -s globstar nullglob
+           candidates=(
+             "install/mingw64/bin/xtb.exe"
+             "_build/**/xtb.exe"
+             "**/xtb.exe"
+             "**/bin/xtb.exe"
+           )
+           EXE=""
+           for p in "${candidates[@]}"; do
+             for q in $p; do
+               if [ -f "$q" ]; then EXE="$q"; break 2; fi
+             done
+           done
+           if [ -z "$EXE" ]; then
+             echo "::error::xtb.exe not found in expected locations." ; exit 1
            fi
-         
-       - name: Upload artifact
-         uses: actions/upload-artifact@v4
-         with:
-           name: xtb-windows-static
-           path: xtb-windows-static.zip
+           echo "Found: $EXE"
+           echo "EXE=$EXE" >> "$GITHUB_ENV"
+                
+       # Bundle exe + all runtime DLLs (recursively)
+       - name: Bundle DLLs next to the binary
+         shell: msys2 {0}
+         run: |
+           set -euo pipefail
+           mkdir -p bundle/bin
+           cp "$EXE" bundle/bin/
+                
+           # Recursively resolve deps, keep only non-system DLLs, copy once
+           mapfile -t deps < <(ntldd -R "$EXE" | awk '/=>/ {print $3}')
+           for dep in "${deps[@]}"; do
+             # Skip entries that weren't resolved or are Windows system dirs
+             [ "$dep" = "not" ] && continue
+             case "$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')" in
+               *:/windows/system32/*|*:/windows/syswow64/*|*/winsxs/*) continue ;;
+             esac
+             if [ -f "$dep" ]; then
+               cp -n "$dep" bundle/bin/
+             fi
+           done
+                
+           # If libiomp5md.dll exists anywhere in the tree but wasn't pulled in above, add it
+           shopt -s nullglob
+           for cand in **/libiomp5md.dll **/LIBIOMP5MD.DLL; do
+             [ -f "$cand" ] && cp -n "$cand" bundle/bin/
+           done
+                
+       # Verify: all non-system deps are co-located (no missing MinGW runtimes)
+       - name: Verify bundled dependencies
+         shell: msys2 {0}
+         run: |
+           set -euo pipefail
+           pushd bundle/bin >/dev/null
+           missing=0
+           mapfile -t resolved < <(ntldd -R xtb.exe | awk '/=>/ {print $3}')
+           for dep in "${resolved[@]}"; do
+             [ "$dep" = "not" ] && continue
+             low="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
+             # ignore system dlls
+             if [[ "$low" =~ :/windows/system32/|:/windows/syswow64/|/winsxs/ ]]; then
+               continue
+             fi
+             base="$(basename "$dep")"
+             if [ ! -f "$base" ]; then
+               echo "::error::Missing dependency $base in bundle/bin"
+               missing=1
+             fi
+           done
+           popd >/dev/null
+           [ $missing -eq 0 ]
+                
+       # Produce the final zip
+       - name: Create distributable zip
+         shell: msys2 {0}
+         run: |
+           set -euo pipefail
+           mkdir -p artifacts
+           (cd bundle && zip -r ../artifacts/xtb-win64.zip .)
 
 
    # Inspired from https://github.com/endless-sky/endless-sky
