@@ -558,7 +558,7 @@ jobs:
          - mingw-meson-static-build
       permissions:
          contents: write
-         workflows: write
+         actions: read
       env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          RELEASE_TAG: bleed
@@ -566,6 +566,8 @@ jobs:
          OUTPUT_WINDOWS: xtb-bleed-windows.zip
       steps:
          - uses: actions/checkout@v4
+           with:
+            persist-credentials: false
          - name: Install github-release
            run: |
             go install github.com/github-release/github-release@latest
@@ -575,10 +577,22 @@ jobs:
            run: |
             echo "GITHUB_USER=$( echo ${{ github.repository }} | cut -d/ -f1 )" >> $GITHUB_ENV
             echo "GITHUB_REPO=$( echo ${{ github.repository }} | cut -d/ -f2 )" >> $GITHUB_ENV
+         - name: Authenticate with PAT
+           run: |
+             git config user.name "github-actions[bot]"
+             git config user.email "github-actions[bot]@users.noreply.github.com"
+             git remote set-url origin "https://x-access-token:${{ secrets.RELEASE_PAT }}@github.com/${{ github.repository }}.git"
+
+         # - name: Move/Create continuous tag
+         #   run: |
+         #    git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
+         #    git push --tags --force
+
          - name: Move/Create continuous tag
            run: |
-            git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
-            git push --tags --force
+             git tag --force "${{ env.RELEASE_TAG }}" "${{ github.sha }}"
+             git push origin "refs/tags/${{ env.RELEASE_TAG }}" --force
+
          - name: Get Time
            run: echo "TIME=$(date -u '+%Y/%m/%d, %H:%M')" >> $GITHUB_ENV
          - name: Check continuous release status
