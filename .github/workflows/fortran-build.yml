@@ -336,234 +336,98 @@ jobs:
            env:
             OMP_NUM_THREADS: 2,1
    mingw-meson-static-build:
-     runs-on: windows-latest
-     strategy:
-       fail-fast: false
-       matrix:
-         include:
-           - { msystem: MINGW64, arch: x86_64 }
-     defaults:
-       run:
-         shell: msys2 {0}
-     steps:
-       - name: Checkout code
-         uses: actions/checkout@v4
-       - name: Setup MSYS2 toolchain
-         uses: msys2/setup-msys2@v2
-         with:
-           msystem: ${{ matrix.msystem }}
-           update: false
-           install: >-
-             git
-             mingw-w64-${{ matrix.arch }}-gcc-fortran
-             mingw-w64-${{ matrix.arch }}-openblas
-             mingw-w64-${{ matrix.arch }}-lapack
-             mingw-w64-${{ matrix.arch }}-python
-             mingw-w64-${{ matrix.arch }}-python-pip
-             mingw-w64-${{ matrix.arch }}-meson
-             mingw-w64-${{ matrix.arch }}-ninja
-             mingw-w64-${{ matrix.arch }}-binutils
-             mingw-w64-${{ matrix.arch }}-ntldd
-             zip
-       # Configure static build with an absolute install location
-       - name: Configure build (static)
-         run: >
-           meson setup ${{ env.BUILD_DIR }}
-           --prefix="$PWD/xtb-bleed-windows"
-           --libdir=lib
-           -Ddefault_library=static
-           -Dlapack=netlib
-           -Db_lto=false
-           --buildtype release
-           --optimization 2
-           --warnlevel=0
-         env:
-           CC: gcc
-           FC: gfortran
-           PKG_CONFIG_ALL_STATIC: "1"
-           CFLAGS: "-fno-strict-aliasing"
-           FFLAGS: "-fno-strict-aliasing"
-           LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
-       - name: Build project
-         run: |
-           meson compile -C ${{ env.BUILD_DIR }}
-       - name: Run unit tests
-         run: |
-           meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
-         env:
-           OMP_NUM_THREADS: 2
-       - name: Install package
-         run: |
-           meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-       # Add BLAS/LAPACK DLLs if xtb.exe imports them
-       - name: Add BLAS/LAPACK DLLs if referenced
-         run: |
-           EXE="xtb-bleed-windows/bin/xtb.exe"
-           [ -f "$EXE" ] || { echo "::error::$EXE not found after install"; exit 1; }
-           for want in libblas.dll liblapack.dll; do
-             if objdump -p "$EXE" \
-                  | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//Ip' \
-                  | tr -d '\r' \
-                  | tr '[:upper:]' '[:lower:]' \
-                  | grep -qxF "$want"
-             then
-               path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} {gsub(/\r$/,""); if ($1==want) {print $3; exit}}')"
-               if [ -n "${path:-}" ] && [ -f "$path" ]; then
-                 echo "Bundling $want from $path"
-                 cp -n "$path" "xtb-bleed-windows/bin/"
-               else
-                 echo "::warning::$want referenced but ntldd could not resolve a path"
-               fi
-             else
-               echo "$want not referenced by xtb.exe; skipping."
-             fi
-           done
-       - name: Create distributable zip
-         run: |
-           zip -r xtb-bleed-windows.zip xtb-bleed-windows 
-       - name: Upload binary
-         if: github.event_name == 'push'
-         uses: actions/upload-artifact@v4
-         with:
-           name: xtb-bleed-windows.zip
-           path: xtb-bleed-windows.zip
-
-   macos-meson-static-bundle:
-     runs-on: ${{ matrix.os }}
-     strategy:
-       fail-fast: false
-       matrix:
-         os: [macos-latest]   # add 'macos-15-intel' too if you want an Intel build
-         gcc_ver: [14]
-     env:
-       BUILD_DIR: _build
-       OUTPUT_MACOS: xtb-bleed-macos.zip
-     steps:
-       - name: Checkout code
-         uses: actions/checkout@v4
-   
-       - name: Setup Python + Meson/Ninja
-         uses: actions/setup-python@v5
-         with:
-           python-version: '3.x'
-       - run: pip install meson==1.7.0 ninja
-         
-       - name: Install toolchain and OpenBLAS
-         run: |
-           brew update
-           brew install gcc@${{ matrix.gcc_ver }} openblas gnu-tar
-           echo "HOMEBREW_PREFIX=$(brew --prefix)" >> $GITHUB_ENV
-           echo "OPENBLAS_PREFIX=$(brew --prefix openblas)" >> $GITHUB_ENV
-           # Unversioned CC/FC variables for Meson
-           echo "CC=$(brew --prefix)/bin/gcc-${{ matrix.gcc_ver }}" >> $GITHUB_ENV
-           echo "FC=$(brew --prefix)/bin/gfortran-${{ matrix.gcc_ver }}" >> $GITHUB_ENV
-           # Ensure pkg-config can find OpenBLAS on both Intel/Apple Silicon
-           echo "PKG_CONFIG_PATH=$OPENBLAS_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
-         
-       - name: Configure build (static libs + OpenMP + OpenBLAS)
-         env:
-           CC: ${{ env.CC }}
-           FC: ${{ env.FC }}
-         run: |
-           meson setup $BUILD_DIR \
-             --prefix="$PWD/xtb-bleed-macos" \
-             --libdir=lib \
-             -Ddefault_library=static \
-             -Dlapack=openblas \
-             -Db_lto=false \
-             --buildtype=release \
-             --warnlevel=0 \
-             -Dc_args="-fopenmp" \
-             -Dfortran_args="-fopenmp" \
-             -Dc_link_args="-fopenmp" \
-             -Dfortran_link_args="-fopenmp"
-           meson configure $BUILD_DIR
-         
-       - name: Build
-         run: meson compile -C $BUILD_DIR
-         
-       - name: Run unit tests
-         env:
-           OMP_NUM_THREADS: 2
-         run: meson test -C $BUILD_DIR --print-errorlogs --no-rebuild -t 120 --suite xtb
-         
-       - name: Install into bundle dir
-         run: meson install -C $BUILD_DIR --no-rebuild
-         
-       # Copy dependent Homebrew dylibs into xtb-bleed-macos/lib and fix rpaths
-       - name: Vendor non-system dylibs and fix rpaths
-         shell: bash
-         run: |
-           set -euo pipefail
-           APPDIR="$PWD/xtb-bleed-macos"
-           EXE="$APPDIR/bin/xtb"
-           LIBDIR="$APPDIR/lib"
-           mkdir -p "$LIBDIR"
-         
-           needs_copy() {
-             # We only vendor Homebrew libs; skip system ones
-             [[ "$1" == /opt/homebrew/* || "$1" == /usr/local/* ]]
-           }
-         
-           # Collect direct deps from the executable
-           mapfile -t DEPS < <(otool -L "$EXE" | awk 'NR>1 {print $1}')
-           COPIED=()
-           for dep in "${DEPS[@]}"; do
-             needs_copy "$dep" || continue
-             base="$(basename "$dep")"
-             dst="$LIBDIR/$base"
-             [[ -f "$dst" ]] || cp -a "$dep" "$dst"
-             COPIED+=("$dst")
-           done
-         
-           # Recursively pull deps of copied libs (one pass is usually enough for gcc/openblas stack)
-           for lib in "${COPIED[@]}"; do
-             mapfile -t SUB < <(otool -L "$lib" | awk 'NR>1 {print $1}')
-             for dep in "${SUB[@]}"; do
-               needs_copy "$dep" || continue
-               base="$(basename "$dep")"
-               dst="$LIBDIR/$base"
-               [[ -f "$dst" ]] || cp -a "$dep" "$dst"
-             done
-           done
-         
-           # Give every vendored dylib an @rpath install name
-           for lib in "$LIBDIR"/*.dylib; do
-             install_name_tool -id "@rpath/$(basename "$lib")" "$lib"
-           done
-         
-           # Make the executable search ../lib at runtime
-           install_name_tool -add_rpath "@loader_path/../lib" "$EXE" || true
-         
-           # Repoint the executable’s Homebrew deps to @rpath/…
-           for dep in "${DEPS[@]}"; do
-             needs_copy "$dep" || continue
-             install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$EXE"
-           done
-         
-           # Repoint each vendored dylib to other vendored dylibs via @rpath
-           for lib in "$LIBDIR"/*.dylib; do
-             mapfile -t SUB < <(otool -L "$lib" | awk 'NR>1 {print $1}')
-             for dep in "${SUB[@]}"; do
-               needs_copy "$dep" || continue
-               install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$lib"
-             done
-           done
-         
-           echo "Final deps of xtb:"
-           otool -L "$EXE"
-         
-       - name: Create distributable zip
-         run: |
-           /usr/bin/zip -r "$OUTPUT_MACOS" xtb-bleed-macos
-         
-       - name: Upload artifact
-         if: github.event_name == 'push'
-         uses: actions/upload-artifact@v4
-         with:
-           name: xtb-bleed-macos.zip
-           path: xtb-bleed-macos.zip
-
+      runs-on: windows-latest
+      strategy:
+         fail-fast: false
+         matrix:
+            include:
+               - { msystem: MINGW64, arch: x86_64 }
+      defaults:
+         run:
+            shell: msys2 {0}
+      steps:
+         - name: Checkout code
+           uses: actions/checkout@v4
+         - name: Setup MSYS2 toolchain
+           uses: msys2/setup-msys2@v2
+           with:
+            msystem: ${{ matrix.msystem }}
+            update: false
+            install: >-
+              git
+              mingw-w64-${{ matrix.arch }}-gcc-fortran
+              mingw-w64-${{ matrix.arch }}-openblas
+              mingw-w64-${{ matrix.arch }}-lapack
+              mingw-w64-${{ matrix.arch }}-python
+              mingw-w64-${{ matrix.arch }}-python-pip
+              mingw-w64-${{ matrix.arch }}-meson
+              mingw-w64-${{ matrix.arch }}-ninja
+              mingw-w64-${{ matrix.arch }}-binutils
+              mingw-w64-${{ matrix.arch }}-ntldd
+              zip
+         # Configure static build with an absolute install location
+         - name: Configure build (static)
+           run: >
+            meson setup ${{ env.BUILD_DIR }}
+            --prefix="$PWD/xtb-bleed-windows"
+            --libdir=lib
+            -Ddefault_library=static
+            -Dlapack=netlib
+            -Db_lto=false
+            --buildtype release
+            --optimization 2
+            --warnlevel=0
+           env:
+            CC: gcc
+            FC: gfortran
+            PKG_CONFIG_ALL_STATIC: "1"
+            CFLAGS: "-fno-strict-aliasing"
+            FFLAGS: "-fno-strict-aliasing"
+            LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
+         - name: Build project
+           run: |
+            meson compile -C ${{ env.BUILD_DIR }}
+         - name: Run unit tests
+           run: |
+            meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+           env:
+            OMP_NUM_THREADS: 2
+         - name: Install package
+           run: |
+            meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+         # Add BLAS/LAPACK DLLs if xtb.exe imports them
+         - name: Add BLAS/LAPACK DLLs if referenced
+           run: |
+            EXE="xtb-bleed-windows/bin/xtb.exe"
+            [ -f "$EXE" ] || { echo "::error::$EXE not found after install"; exit 1; }
+            for want in libblas.dll liblapack.dll; do
+              if objdump -p "$EXE" \
+                   | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//Ip' \
+                   | tr -d '\r' \
+                   | tr '[:upper:]' '[:lower:]' \
+                   | grep -qxF "$want"
+              then
+                path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} {gsub(/\r$/,""); if ($1==want) {print $3; exit}}')"
+                if [ -n "${path:-}" ] && [ -f "$path" ]; then
+                  echo "Bundling $want from $path"
+                  cp -n "$path" "xtb-bleed-windows/bin/"
+                else
+                  echo "::warning::$want referenced but ntldd could not resolve a path"
+                fi
+              else
+                echo "$want not referenced by xtb.exe; skipping."
+              fi
+            done
+         - name: Create distributable zip
+           run: |
+            zip -r xtb-bleed-windows.zip xtb-bleed-windows 
+         - name: Upload binary
+           if: github.event_name == 'push'
+           uses: actions/upload-artifact@v4
+           with:
+            name: xtb-bleed-windows.zip
+            path: xtb-bleed-windows.zip
+           
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
       if: github.event_name == 'push'
@@ -571,9 +435,6 @@ jobs:
       needs:
          - intel-meson-build
          - mingw-meson-static-build
-      permissions:
-         contents: write
-         actions: read
       env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          RELEASE_TAG: bleed
@@ -581,8 +442,6 @@ jobs:
          OUTPUT_WINDOWS: xtb-bleed-windows.zip
       steps:
          - uses: actions/checkout@v4
-           with:
-            persist-credentials: false
          - name: Install github-release
            run: |
             go install github.com/github-release/github-release@latest
@@ -592,22 +451,10 @@ jobs:
            run: |
             echo "GITHUB_USER=$( echo ${{ github.repository }} | cut -d/ -f1 )" >> $GITHUB_ENV
             echo "GITHUB_REPO=$( echo ${{ github.repository }} | cut -d/ -f2 )" >> $GITHUB_ENV
-         - name: Authenticate with PAT
-           run: |
-             git config user.name "github-actions[bot]"
-             git config user.email "github-actions[bot]@users.noreply.github.com"
-             git remote set-url origin "https://x-access-token:${{ secrets.RELEASE_PAT }}@github.com/${{ github.repository }}.git"
-
-         # - name: Move/Create continuous tag
-         #   run: |
-         #    git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
-         #    git push --tags --force
-
          - name: Move/Create continuous tag
            run: |
-             git tag --force "${{ env.RELEASE_TAG }}" "${{ github.sha }}"
-             git push origin "refs/tags/${{ env.RELEASE_TAG }}" --force
-
+            git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
+            git push --tags --force
          - name: Get Time
            run: echo "TIME=$(date -u '+%Y/%m/%d, %H:%M')" >> $GITHUB_ENV
          - name: Check continuous release status
