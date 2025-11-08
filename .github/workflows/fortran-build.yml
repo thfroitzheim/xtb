@@ -384,7 +384,6 @@ jobs:
        matrix:
          include:
            - { msystem: MINGW64, arch: x86_64 }
-           # - { msystem: MINGW32, arch: i686 }
      defaults:
        run:
          shell: msys2 {0}
@@ -407,28 +406,32 @@ jobs:
              mingw-w64-${{ matrix.arch }}-meson
              mingw-w64-${{ matrix.arch }}-ninja
              mingw-w64-${{ matrix.arch }}-binutils
-         
-       # Try a fully static build (no libgcc_s/libgfortran/libstdc++/winpthread DLLs)
+
+       # NOTE: disable LTO to avoid GCC 15 LTO ICE, and link quadmath explicitly
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
            -Ddefault_library=static
            -Dlapack=netlib
-           -Db_lto=true
+           -Db_lto=false
            --warnlevel=0
          env:
-           FC: gfortran
            CC: gcc
-           # Make pkg-config prefer static libs
-           PKG_CONFIG_STATIC: "1"
-           # Force static link of runtimes & winpthread
-           LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed"
-         #   CFLAGS: "-O2"
-         #   FFLAGS: "-O2"
+           FC: gfortran
+           # Prefer static libs when resolving with pkg-config
+           PKG_CONFIG_ALL_STATIC: "1"
+           # Compile flags
+           CFLAGS: "-fno-strict-aliasing"
+           FFLAGS: "-fno-strict-aliasing"
+           # Link fully static; add quadmath to satisfy libgfortran when linked from C
+           LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
+
          
        - name: Build project
          run: meson compile -C ${{ env.BUILD_DIR }}
-         
+         #   # build the xtb unit tester explicitly so --no-rebuild works
+         #   meson compile -C ${{ env.BUILD_DIR }} test/unit/tester.exe || true
+
        - name: Run unit tests
          run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
          env:
