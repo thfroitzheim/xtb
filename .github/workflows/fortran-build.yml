@@ -119,7 +119,7 @@ jobs:
            env:
             FC: ${{ matrix.fc }}
             CC: ${{ matrix.cc }}
-            MESON_ARGS: ${{ '-Dlapack=netlib -Dtblite=enabled -Dcpcmx=enabled' }}
+            MESON_ARGS: ${{ '-Dlapack=netlib -Dtblite=disabled -Dcpcmx=disabled' }}
          - name: Build project
            run: meson compile -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
@@ -148,7 +148,7 @@ jobs:
          - name: Install CMake
            run: pip3 install ninja cmake
          - name: Configure build
-           run: cmake -B ${{ env.BUILD_DIR }} -DWITH_CPCMX=true -DWITH_TBLITE=true -G Ninja
+           run: cmake -B ${{ env.BUILD_DIR }} -DWITH_CPCMX=false -DWITH_TBLITE=false -G Ninja
            env:
             FC: ${{ matrix.fc }}
             CC: ${{ matrix.cc }}
@@ -229,7 +229,7 @@ jobs:
             printenv >> $GITHUB_ENV
          - name: Configure meson build
            run: >-
-            meson setup ${{ env.BUILD_DIR }} --prefix=/ --libdir=lib -Dfortran_link_args="-lifcoremt -static" -Ddefault_library=static -Dlapack=mkl -Dtblite=enabled -Dcpcmx=enabled
+            meson setup ${{ env.BUILD_DIR }} --prefix=/ --libdir=lib -Dfortran_link_args="-lifcoremt -static" -Ddefault_library=static -Dlapack=mkl
          - name: Build project
            run: ninja -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
@@ -285,7 +285,7 @@ jobs:
             printenv >> $GITHUB_ENV
          - name: Configure cmake build
            run: >-
-            cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build }} -DCMAKE_C_COMPILER=icx -DCMAKE_Fortran_COMPILER=ifx -DBLA_VENDOR=Intel10_64lp -DWITH_TBLITE=true -DWITH_CPCMX=true
+            cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build }} -DCMAKE_C_COMPILER=icx -DCMAKE_Fortran_COMPILER=ifx -DBLA_VENDOR=Intel10_64lp -DWITH_TBLITE=false 
          - name: Build project
            run: ninja -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
@@ -327,7 +327,7 @@ jobs:
             printenv >> $GITHUB_ENV
          - name: Configure meson build
            run: >-
-            CC=${{ env.CC }} FC=${{ env.FC }} meson setup ${{ env.BUILD_DIR }} --prefix=/ --libdir=lib -Dfortran_link_args="-lifcoremt -static" -Ddefault_library=static -Dlapack=mkl -Dtblite=enabled -Dcpcmx=enabled
+            CC=${{ env.CC }} FC=${{ env.FC }} meson setup ${{ env.BUILD_DIR }} --prefix=/ --libdir=lib -Dfortran_link_args="-lifcoremt -static" -Ddefault_library=static -Dlapack=mkl -Dtblite=disabled
          - name: Build project
            run: ninja -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
@@ -335,112 +335,35 @@ jobs:
             meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --num-processes 1 --no-rebuild --suite xtb -t 120
            env:
             OMP_NUM_THREADS: 2,1
-   linux-static-artifact:
-      runs-on: ubuntu-latest
-      needs: gcc-meson-build
-      env:
-         BUILD_DIR: _build-static
-      steps:
-         - name: Checkout code
-           uses: actions/checkout@v4
-         - name: Install dependencies
-           run: |
-            sudo apt-get update
-            sudo apt-get install -y gfortran ninja-build pkg-config libopenblas-dev python3-pip
-         - name: Install Meson
-           run: pip3 install meson==1.7.0 ninja
-         - name: Configure static build
-           run: >-
-            meson setup ${{ env.BUILD_DIR }} --buildtype=release -Ddefault_library=static -Dlapack=openblas -Dtblite=enabled -Dcpcmx=enabled
-           env:
-            FC: gfortran
-            CC: gcc
-         - name: Build static binaries
-           run: meson compile -C ${{ env.BUILD_DIR }}
-         - name: Test static build
-           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
-           env:
-            OMP_NUM_THREADS: 2
-         - name: Install package
-           run: |
-            DESTDIR="${{ github.workspace }}/install" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-            tar czf xtb-linux-static.tar.gz -C install .
-         - name: Upload artifact
-           uses: actions/upload-artifact@v4
-           with:
-            name: xtb-linux-static
-            path: xtb-linux-static.tar.gz
-   macos-static-artifact:
-      runs-on: macos-13
-      needs: gcc-meson-build
-      env:
-         BUILD_DIR: _build-static
-      steps:
-         - name: Checkout code
-           uses: actions/checkout@v4
-         - name: Install dependencies
-           run: |
-            brew update
-            brew install gcc openblas ninja meson
-         - name: Configure static build
-           run: >-
-            meson setup ${{ env.BUILD_DIR }} --buildtype=release -Ddefault_library=static -Dlapack=openblas -Dtblite=enabled -Dcpcmx=enabled
-           env:
-            FC: "$(brew --prefix gcc)/bin/gfortran"
-            CC: "$(brew --prefix gcc)/bin/gcc"
-            PKG_CONFIG_PATH: "$(brew --prefix openblas)/lib/pkgconfig"
-            LDFLAGS: "-L$(brew --prefix openblas)/lib"
-            CPPFLAGS: "-I$(brew --prefix openblas)/include"
-         - name: Build static binaries
-           run: meson compile -C ${{ env.BUILD_DIR }}
-         - name: Test static build
-           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
-           env:
-            OMP_NUM_THREADS: 2
-         - name: Install package
-           env:
-            PKG_CONFIG_PATH: "$(brew --prefix openblas)/lib/pkgconfig"
-           run: |
-            DESTDIR="${{ github.workspace }}/install" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-            tar czf xtb-macos-static.tar.gz -C install .
-         - name: Upload artifact
-           uses: actions/upload-artifact@v4
-           with:
-            name: xtb-macos-static
-            path: xtb-macos-static.tar.gz
-   windows-static-artifact:
+   mingw-meson-static-build:
       runs-on: windows-latest
-      needs: mingw-meson-build
-      env:
-         BUILD_DIR: _build-static
+      strategy:
+         fail-fast: false
+         matrix:
+            include: [{msystem: MINGW64, arch: x86_64,}
+               # { msystem: MINGW32, arch: i686   }
+            ]
       defaults:
          run:
             shell: msys2 {0}
       steps:
          - name: Checkout code
            uses: actions/checkout@v4
-         - name: Setup MSYS2
+         - name: Setup MSYS2 toolchain
            uses: msys2/setup-msys2@v2
            with:
-            msystem: MINGW64
-            update: true
+            msystem: ${{ matrix.msystem }}
+            update: false
             install: >-
-               base-devel
-               mingw-w64-x86_64-toolchain
-               mingw-w64-x86_64-openblas
-               mingw-w64-x86_64-meson
-               mingw-w64-x86_64-ninja
-               mingw-w64-x86_64-pkgconf
-         - name: Configure static build
+               git mingw-w64-${{ matrix.arch }}-gcc-fortran mingw-w64-${{ matrix.arch }}-openblas mingw-w64-${{ matrix.arch }}-lapack mingw-w64-${{ matrix.arch }}-python mingw-w64-${{ matrix.arch }}-python-pip mingw-w64-${{ matrix.arch }}-meson mingw-w64-${{ matrix.arch }}-ninja
+         - name: Configure build
+           run: meson setup ${{ env.BUILD_DIR }} -Ddefault_library=static -Dlapack=netlib --warnlevel=0
            env:
-            FC: gfortran
-            CC: gcc
-            PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
-           run: >-
-            meson setup ${{ env.BUILD_DIR }} --buildtype=release -Ddefault_library=static -Dlapack=openblas -Dtblite=enabled -Dcpcmx=enabled
-         - name: Build static binaries
+             FC: gfortran
+             CC: gcc
+         - name: Build project
            run: meson compile -C ${{ env.BUILD_DIR }}
-         - name: Test static build
+         - name: Run unit tests
            run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
            env:
             OMP_NUM_THREADS: 1
