@@ -574,7 +574,6 @@ jobs:
    #          if-no-files-found: error
    #          overwrite: true
 
-
    mingw-meson-static-build:
      runs-on: windows-latest
      strategy:
@@ -585,10 +584,11 @@ jobs:
      defaults:
        run:
          shell: msys2 {0}
+ 
      steps:
        - name: Checkout code
          uses: actions/checkout@v4
-
+ 
        - name: Setup MSYS2 toolchain
          uses: msys2/setup-msys2@v2
          with:
@@ -604,12 +604,17 @@ jobs:
              mingw-w64-${{ matrix.arch }}-meson
              mingw-w64-${{ matrix.arch }}-ninja
              mingw-w64-${{ matrix.arch }}-binutils
+             mingw-w64-${{ matrix.arch }}-ntldd
              zip
-
-       # NOTE: disable LTO to avoid GCC 15 LTO ICE, and link quadmath explicitly
+ 
+       # Force a flat install root like on Linux: /bin, /lib, /share under DESTDIR
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
+           --prefix=/
+           --libdir=lib
+           --bindir=bin
+           --datadir=share
            -Ddefault_library=static
            -Dlapack=netlib
            -Db_lto=false
@@ -620,65 +625,65 @@ jobs:
            PKG_CONFIG_ALL_STATIC: "1"
            CFLAGS: "-fno-strict-aliasing"
            FFLAGS: "-fno-strict-aliasing"
+           # Fully static toolchain libs; BLAS/LAPACK remain DLLs if linked that way
            LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
-
+ 
        - name: Build project
          run: meson compile -C ${{ env.BUILD_DIR }}
-
+ 
        - name: Run unit tests
          run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
          env:
            OMP_NUM_THREADS: 2
-
-       - name: Install package
-         run: |
-           DESTDIR="$PWD/install" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-           # Optional: strip the main exe to shrink size
-           if [ -f "install/mingw64/bin/xtb.exe" ]; then
-             x86_64-w64-mingw32-strip install/mingw64/bin/xtb.exe || true
-           fi
-
-       # Copy only BLAS/LAPACK DLLs if xtb.exe actually imports them
-       - name: Add BLAS/LAPACK DLLs if needed
+ 
+       - name: Install package (to ./xtb-win64)
          run: |
            set -euo pipefail
-           EXE="install/mingw64/bin/xtb.exe"
-           need=(libblas.dll liblapack.dll)
+           INSTALL_ROOT="$PWD/xtb-win64"
+           DESTDIR="$INSTALL_ROOT" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+           if [ -f "$INSTALL_ROOT/bin/xtb.exe" ]; then
+             x86_64-w64-mingw32-strip "$INSTALL_ROOT/bin/xtb.exe" || true
+           fi
+           echo "INSTALL_ROOT=$INSTALL_ROOT" >> "$GITHUB_ENV"
+ 
+       # Copy ONLY the explicitly imported BLAS/LAPACK DLLs (skip system DLLs)
+       - name: Add BLAS/LAPACK DLLs if referenced
+         run: |
+           set -euo pipefail
+           EXE="$INSTALL_ROOT/bin/xtb.exe"
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
-
-           # Get lowercase import list
+ 
            mapfile -t imports < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]')
-
-           for name in "${need[@]}"; do
-             low="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
-             if printf "%s\n" "${imports[@]}" | grep -qx "$low"; then
-               resolved="$(ntldd "$EXE" | awk -v want="$low" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
-               if [ -n "${resolved:-}" ] && [ -f "$resolved" ]; then
-                 echo "Bundling $name from: $resolved"
-                 cp -n "$resolved" install/mingw64/bin/
+           for want in libblas.dll liblapack.dll; do
+             if printf "%s\n" "${imports[@]}" | grep -qx "$want"; then
+               path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
+               if [ -n "${path:-}" ] && [ -f "$path" ]; then
+                 echo "Bundling $want from $path"
+                 cp -n "$path" "$INSTALL_ROOT/bin/"
                else
-                 echo "::warning::$name referenced but could not be resolved with ntldd"
+                 echo "::warning::$want referenced but could not be resolved with ntldd"
                fi
              else
-               echo "$name not referenced by xtb.exe; skipping."
+               echo "$want not referenced by xtb.exe; skipping."
              fi
            done
-
+ 
        - name: Create distributable zip (entire install/)
          run: |
            set -euo pipefail
            mkdir -p artifacts
-           (cd install && zip -r ../artifacts/xtb-win64.zip .)
-
+           (cd "$INSTALL_ROOT" && zip -r ../artifacts/xtb-win64.zip .)
+ 
        - name: Upload artifact
          uses: actions/upload-artifact@v4
          with:
-           name: xtb-win64
+           name: xtb-win64-bundle
            path: artifacts/xtb-win64.zip
            if-no-files-found: error
            overwrite: true
+
 
 
    # Inspired from https://github.com/endless-sky/endless-sky
