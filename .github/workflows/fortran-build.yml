@@ -610,9 +610,6 @@ jobs:
        # Force a flat install root like on Linux: /bin, /lib, /share under DESTDIR
        - name: Configure build (static)
          run: >
-           set -euo pipefail
-           INSTALL_PREFIX="$PWD/xtb-bleed-windows"
-           echo "INSTALL_PREFIX=$INSTALL_PREFIX" >> "$GITHUB_ENV"
            meson setup ${{ env.BUILD_DIR }}
            --prefix="$INSTALL_PREFIX"
            --libdir=lib
@@ -623,6 +620,7 @@ jobs:
          env:
            CC: gcc
            FC: gfortran
+           INSTALL_PREFIX: ${{ env.PWD }}/xtb-bleed-windows
            PKG_CONFIG_ALL_STATIC: "1"
            CFLAGS: "-fno-strict-aliasing"
            FFLAGS: "-fno-strict-aliasing"
