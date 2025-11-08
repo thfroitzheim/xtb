@@ -427,6 +427,66 @@ jobs:
          with:
            name: xtb-bleed-windows.zip
            path: xtb-bleed-windows.zip
+   windows-intel-meson-static-build:
+     runs-on: windows-latest
+     defaults:
+       run:
+         shell: cmd
+     steps:
+       - name: Checkout code
+         uses: actions/checkout@v4
+ 
+       # Install Intel ifx/icx (and VS build tools are already on the runner)
+       - name: Setup Intel Fortran (ifx) and C (icx)
+         uses: fortran-lang/setup-fortran@v1
+         with:
+           compiler: intel
+           version: '2025.2'   # or '2024.1' if you prefer
+ 
+       - name: Setup Python + Meson/Ninja
+         uses: actions/setup-python@v5
+         with:
+           python-version: '3.x'
+       - run: pip install meson==1.7.0 ninja
+ 
+       # Configure: static MSVC runtime, MKL LAPACK, OpenMP (try static OpenMP)
+       - name: Configure build (Intel static)
+         env:
+           FC: ifx
+           CC: icx
+         run: >
+           meson setup %BUILD_DIR%
+           --prefix="%CD%\xtb-bleed-windows-intel"
+           --libdir=lib
+           -Ddefault_library=static
+           -Dlapack=mkl
+           -Db_vscrt=static
+           --buildtype=release
+           --optimization=2
+           --warnlevel=0
+           -Dfortran_link_args="/Qopenmp /Qopenmp-link:static /Qmkl /Qstatic-intel"
+ 
+       - name: Build
+         run: meson compile -C %BUILD_DIR%
+ 
+       - name: Test
+         run: meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
+         env:
+           OMP_NUM_THREADS: 2
+ 
+       - name: Install
+         run: meson install -C %BUILD_DIR% --no-rebuild
+ 
+       - name: Create distributable zip
+         run: powershell -Command "Compress-Archive -Path 'xtb-bleed-windows-intel\*' -DestinationPath 'xtb-bleed-windows-intel.zip' -Force"
+ 
+       - name: Upload artifact
+         if: github.event_name == 'push'
+         uses: actions/upload-artifact@v4
+         with:
+           name: xtb-bleed-windows-intel.zip
+           path: xtb-bleed-windows-intel.zip
+
    # Inspired from https://github.com/endless-sky/endless-sky
    # continuous-delivery:
    #    if: github.event_name == 'push'
