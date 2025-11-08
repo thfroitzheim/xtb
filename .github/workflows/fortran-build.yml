@@ -377,6 +377,204 @@ jobs:
    #          name: xtb-windows-static
    #          path: xtb-windows-static.zip
 
+   # mingw-meson-static-build:
+   #   runs-on: windows-latest
+   #   strategy:
+   #     fail-fast: false
+   #     matrix:
+   #       include:
+   #         - { msystem: MINGW64, arch: x86_64 }
+   #   defaults:
+   #     run:
+   #       shell: msys2 {0}
+   #   steps:
+   #     - name: Checkout code
+   #       uses: actions/checkout@v4
+   
+   #     - name: Setup MSYS2 toolchain
+   #       uses: msys2/setup-msys2@v2
+   #       with:
+   #         msystem: ${{ matrix.msystem }}
+   #         update: false
+   #         install: >-
+   #           git
+   #           mingw-w64-${{ matrix.arch }}-gcc-fortran
+   #           mingw-w64-${{ matrix.arch }}-openblas
+   #           mingw-w64-${{ matrix.arch }}-lapack
+   #           mingw-w64-${{ matrix.arch }}-python
+   #           mingw-w64-${{ matrix.arch }}-python-pip
+   #           mingw-w64-${{ matrix.arch }}-meson
+   #           mingw-w64-${{ matrix.arch }}-ninja
+   #           mingw-w64-${{ matrix.arch }}-binutils
+
+   #     # NOTE: disable LTO to avoid GCC 15 LTO ICE, and link quadmath explicitly
+   #     - name: Configure build (static)
+   #       run: >
+   #         meson setup ${{ env.BUILD_DIR }}
+   #         -Ddefault_library=static
+   #         -Dlapack=netlib
+   #         -Db_lto=false
+   #         --warnlevel=0
+   #       env:
+   #         CC: gcc
+   #         FC: gfortran
+   #         # Prefer static libs when resolving with pkg-config
+   #         PKG_CONFIG_ALL_STATIC: "1"
+   #         # Compile flags
+   #         CFLAGS: "-fno-strict-aliasing"
+   #         FFLAGS: "-fno-strict-aliasing"
+   #         # Link fully static; add quadmath to satisfy libgfortran when linked from C
+   #         LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
+
+         
+   #     - name: Build project
+   #       run: meson compile -C ${{ env.BUILD_DIR }}
+   #       #   # build the xtb unit tester explicitly so --no-rebuild works
+   #       #   meson compile -C ${{ env.BUILD_DIR }} test/unit/tester.exe || true
+
+   #     - name: Run unit tests
+   #       run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+   #       env:
+   #         OMP_NUM_THREADS: 2
+         
+   #     - name: Install package
+   #       run: |
+   #         DESTDIR="$PWD/install" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+   #         # Strip binaries to shrink the artifact
+   #         if [ -f "install/mingw64/bin/xtb.exe" ]; then x86_64-w64-mingw32-strip install/mingw64/bin/xtb.exe || true; fi
+   #         bsdtar -acf xtb-windows-static.zip -C install .
+
+   #     # Ensure tools we use are available
+   #     - name: Install helper tools
+   #       shell: msys2 {0}
+   #       run: |
+   #         set -euo pipefail
+   #         pacman -S --noconfirm --needed mingw-w64-x86_64-ntldd zip
+                
+   #     # Locate xtb.exe regardless of layout
+   #     - name: Locate xtb.exe
+   #       shell: msys2 {0}
+   #       run: |
+   #         set -euo pipefail
+   #         shopt -s globstar nullglob
+   #         candidates=(
+   #           "install/mingw64/bin/xtb.exe"
+   #           "_build/**/xtb.exe"
+   #           "**/xtb.exe"
+   #           "**/bin/xtb.exe"
+   #         )
+   #         EXE=""
+   #         for p in "${candidates[@]}"; do
+   #           for q in $p; do
+   #             if [ -f "$q" ]; then EXE="$q"; break 2; fi
+   #           done
+   #         done
+   #         if [ -z "$EXE" ]; then
+   #           echo "::error::xtb.exe not found in expected locations." ; exit 1
+   #         fi
+   #         echo "Found: $EXE"
+   #         echo "EXE=$EXE" >> "$GITHUB_ENV"
+                
+   #     # --- Replace the "Bundle DLLs next to the binary" step with this ---
+   #     - name: Bundle only direct DLL dependencies
+   #       shell: msys2 {0}
+   #       run: |
+   #         set -euo pipefail
+   #         mkdir -p bundle/bin
+   #         cp "$EXE" bundle/bin/
+       
+   #         # Collect direct imports from the EXE import table
+   #         mapfile -t direct < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p')
+       
+   #         # Windows/system DLLs to ignore (case-insensitive match)
+   #         ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
+       
+   #         # Resolve each direct import to a path with ntldd and copy it
+   #         for name in "${direct[@]}"; do
+   #           low="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+   #           if echo "$low" | grep -Eq "$ignore_re"; then
+   #             continue
+   #           fi
+   #           # Find the resolved path of this exact direct import
+   #           path="$(ntldd "$EXE" | awk -v want="$low" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
+   #           if [ -n "${path:-}" ] && [ "$path" != "not" ] && [ -f "$path" ]; then
+   #             echo "Bundling $(basename "$path")"
+   #             cp -n "$path" bundle/bin/
+   #           else
+   #             echo "::warning::Could not resolve direct import $name"
+   #           fi
+   #         done
+
+   #     # --- Optional but useful: print whether OpenMP is present ---
+   #     - name: Report OpenMP runtime (detected)
+   #       shell: msys2 {0}
+   #       run: |
+   #         set -euo pipefail
+   #         need="$(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]' | grep -E 'libgomp|libiomp5md' || true)"
+   #         if [ -n "$need" ]; then
+   #           echo "OpenMP runtime detected in import table: $need"
+   #         else
+   #           echo "No OpenMP runtime DLL in import table (OpenMP disabled or linked statically)."
+   #         fi
+             
+   #     # --- Replace the "Verify bundled dependencies" step with this ---
+   #     - name: Verify bundled direct dependencies only
+   #       shell: msys2 {0}
+   #       run: |
+   #          set -euo pipefail
+   #          pushd bundle/bin >/dev/null
+                  
+   #          # Ensure empty globs don't expand to the literal pattern
+   #          shopt -s nullglob
+                  
+   #          ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
+                  
+   #          # Build allowlist of direct (non-system) imports
+   #          mapfile -t allowed < <(
+   #            objdump -p xtb.exe | sed -n 's/ \+DLL Name: //p' \
+   #            | tr '[:upper:]' '[:lower:]' | grep -Ev "$ignore_re"
+   #          )
+                  
+   #          missing=0
+                  
+   #          # 1) Every allowed DLL must exist in the bundle
+   #          for name in "${allowed[@]}"; do
+   #            if ! ls -1 | tr '[:upper:]' '[:lower:]' | grep -qx "$name"; then
+   #              echo "::error::Missing direct dependency $name in bundle/bin"
+   #              missing=1
+   #            fi
+   #          done
+                  
+   #          # 2) No extra DLLs present
+   #          for f in *.dll; do
+   #            lf="$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')"
+   #            if ! printf "%s\n" "${allowed[@]}" | grep -qx "$lf"; then
+   #              echo "::error::Extra DLL bundled that is not a direct import: $f"
+   #              missing=1
+   #            fi
+   #          done
+                  
+   #          popd >/dev/null
+   #          [ $missing -eq 0 ]
+                
+   #     # Produce the final zip
+   #     - name: Create distributable zip
+   #       shell: msys2 {0}
+   #       run: |
+   #         set -euo pipefail
+   #         mkdir -p artifacts
+   #         (cd bundle && zip -r ../artifacts/xtb-win64.zip .)
+
+       
+   #     - name: Upload artifact (bundled DLL build)
+   #       uses: actions/upload-artifact@v4
+   #       with:
+   #          name: xtb-win64-bundle
+   #          path: artifacts/xtb-win64.zip
+   #          if-no-files-found: error
+   #          overwrite: true
+
+
    mingw-meson-static-build:
      runs-on: windows-latest
      strategy:
@@ -390,7 +588,7 @@ jobs:
      steps:
        - name: Checkout code
          uses: actions/checkout@v4
-   
+
        - name: Setup MSYS2 toolchain
          uses: msys2/setup-msys2@v2
          with:
@@ -406,6 +604,7 @@ jobs:
              mingw-w64-${{ matrix.arch }}-meson
              mingw-w64-${{ matrix.arch }}-ninja
              mingw-w64-${{ matrix.arch }}-binutils
+             zip
 
        # NOTE: disable LTO to avoid GCC 15 LTO ICE, and link quadmath explicitly
        - name: Configure build (static)
@@ -418,161 +617,69 @@ jobs:
          env:
            CC: gcc
            FC: gfortran
-           # Prefer static libs when resolving with pkg-config
            PKG_CONFIG_ALL_STATIC: "1"
-           # Compile flags
            CFLAGS: "-fno-strict-aliasing"
            FFLAGS: "-fno-strict-aliasing"
-           # Link fully static; add quadmath to satisfy libgfortran when linked from C
            LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
 
-         
        - name: Build project
          run: meson compile -C ${{ env.BUILD_DIR }}
-         #   # build the xtb unit tester explicitly so --no-rebuild works
-         #   meson compile -C ${{ env.BUILD_DIR }} test/unit/tester.exe || true
 
        - name: Run unit tests
          run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
          env:
            OMP_NUM_THREADS: 2
-         
+
        - name: Install package
          run: |
            DESTDIR="$PWD/install" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-           # Strip binaries to shrink the artifact
-           if [ -f "install/mingw64/bin/xtb.exe" ]; then x86_64-w64-mingw32-strip install/mingw64/bin/xtb.exe || true; fi
-           bsdtar -acf xtb-windows-static.zip -C install .
-
-       # Ensure tools we use are available
-       - name: Install helper tools
-         shell: msys2 {0}
-         run: |
-           set -euo pipefail
-           pacman -S --noconfirm --needed mingw-w64-x86_64-ntldd zip
-                
-       # Locate xtb.exe regardless of layout
-       - name: Locate xtb.exe
-         shell: msys2 {0}
-         run: |
-           set -euo pipefail
-           shopt -s globstar nullglob
-           candidates=(
-             "install/mingw64/bin/xtb.exe"
-             "_build/**/xtb.exe"
-             "**/xtb.exe"
-             "**/bin/xtb.exe"
-           )
-           EXE=""
-           for p in "${candidates[@]}"; do
-             for q in $p; do
-               if [ -f "$q" ]; then EXE="$q"; break 2; fi
-             done
-           done
-           if [ -z "$EXE" ]; then
-             echo "::error::xtb.exe not found in expected locations." ; exit 1
+           # Optional: strip the main exe to shrink size
+           if [ -f "install/mingw64/bin/xtb.exe" ]; then
+             x86_64-w64-mingw32-strip install/mingw64/bin/xtb.exe || true
            fi
-           echo "Found: $EXE"
-           echo "EXE=$EXE" >> "$GITHUB_ENV"
-                
-       # --- Replace the "Bundle DLLs next to the binary" step with this ---
-       - name: Bundle only direct DLL dependencies
-         shell: msys2 {0}
+
+       # Copy only BLAS/LAPACK DLLs if xtb.exe actually imports them
+       - name: Add BLAS/LAPACK DLLs if needed
          run: |
            set -euo pipefail
-           mkdir -p bundle/bin
-           cp "$EXE" bundle/bin/
-       
-           # Collect direct imports from the EXE import table
-           mapfile -t direct < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p')
-       
-           # Windows/system DLLs to ignore (case-insensitive match)
-           ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
-       
-           # Resolve each direct import to a path with ntldd and copy it
-           for name in "${direct[@]}"; do
+           EXE="install/mingw64/bin/xtb.exe"
+           need=(libblas.dll liblapack.dll)
+           if [ ! -f "$EXE" ]; then
+             echo "::error::$EXE not found after install"; exit 1
+           fi
+
+           # Get lowercase import list
+           mapfile -t imports < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]')
+
+           for name in "${need[@]}"; do
              low="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
-             if echo "$low" | grep -Eq "$ignore_re"; then
-               continue
-             fi
-             # Find the resolved path of this exact direct import
-             path="$(ntldd "$EXE" | awk -v want="$low" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
-             if [ -n "${path:-}" ] && [ "$path" != "not" ] && [ -f "$path" ]; then
-               echo "Bundling $(basename "$path")"
-               cp -n "$path" bundle/bin/
+             if printf "%s\n" "${imports[@]}" | grep -qx "$low"; then
+               resolved="$(ntldd "$EXE" | awk -v want="$low" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
+               if [ -n "${resolved:-}" ] && [ -f "$resolved" ]; then
+                 echo "Bundling $name from: $resolved"
+                 cp -n "$resolved" install/mingw64/bin/
+               else
+                 echo "::warning::$name referenced but could not be resolved with ntldd"
+               fi
              else
-               echo "::warning::Could not resolve direct import $name"
+               echo "$name not referenced by xtb.exe; skipping."
              fi
            done
 
-       # --- Optional but useful: print whether OpenMP is present ---
-       - name: Report OpenMP runtime (detected)
-         shell: msys2 {0}
-         run: |
-           set -euo pipefail
-           need="$(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]' | grep -E 'libgomp|libiomp5md' || true)"
-           if [ -n "$need" ]; then
-             echo "OpenMP runtime detected in import table: $need"
-           else
-             echo "No OpenMP runtime DLL in import table (OpenMP disabled or linked statically)."
-           fi
-             
-       # --- Replace the "Verify bundled dependencies" step with this ---
-       - name: Verify bundled direct dependencies only
-         shell: msys2 {0}
-         run: |
-            set -euo pipefail
-            pushd bundle/bin >/dev/null
-                  
-            # Ensure empty globs don't expand to the literal pattern
-            shopt -s nullglob
-                  
-            ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
-                  
-            # Build allowlist of direct (non-system) imports
-            mapfile -t allowed < <(
-              objdump -p xtb.exe | sed -n 's/ \+DLL Name: //p' \
-              | tr '[:upper:]' '[:lower:]' | grep -Ev "$ignore_re"
-            )
-                  
-            missing=0
-                  
-            # 1) Every allowed DLL must exist in the bundle
-            for name in "${allowed[@]}"; do
-              if ! ls -1 | tr '[:upper:]' '[:lower:]' | grep -qx "$name"; then
-                echo "::error::Missing direct dependency $name in bundle/bin"
-                missing=1
-              fi
-            done
-                  
-            # 2) No extra DLLs present
-            for f in *.dll; do
-              lf="$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')"
-              if ! printf "%s\n" "${allowed[@]}" | grep -qx "$lf"; then
-                echo "::error::Extra DLL bundled that is not a direct import: $f"
-                missing=1
-              fi
-            done
-                  
-            popd >/dev/null
-            [ $missing -eq 0 ]
-                
-       # Produce the final zip
-       - name: Create distributable zip
-         shell: msys2 {0}
+       - name: Create distributable zip (entire install/)
          run: |
            set -euo pipefail
            mkdir -p artifacts
-           (cd bundle && zip -r ../artifacts/xtb-win64.zip .)
+           (cd install && zip -r ../artifacts/xtb-win64.zip .)
 
-       
-       - name: Upload artifact (bundled DLL build)
+       - name: Upload artifact
          uses: actions/upload-artifact@v4
          with:
-            name: xtb-win64-bundle
-            path: artifacts/xtb-win64.zip
-            if-no-files-found: error
-            overwrite: true
+           name: xtb-win64
+           path: artifacts/xtb-win64.zip
+           if-no-files-found: error
+           overwrite: true
+
 
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
