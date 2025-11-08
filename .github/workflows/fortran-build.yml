@@ -376,6 +376,93 @@ jobs:
            with:
             name: xtb-windows-static
             path: xtb-windows-static.zip
+
+   mingw-meson-static-build:
+     runs-on: windows-latest
+     strategy:
+       fail-fast: false
+       matrix:
+         include:
+           - { msystem: MINGW64, arch: x86_64 }
+           # - { msystem: MINGW32, arch: i686 }
+     defaults:
+       run:
+         shell: msys2 {0}
+     steps:
+       - name: Checkout code
+         uses: actions/checkout@v4
+   
+       - name: Setup MSYS2 toolchain
+         uses: msys2/setup-msys2@v2
+         with:
+           msystem: ${{ matrix.msystem }}
+           update: false
+           install: >-
+             git
+             mingw-w64-${{ matrix.arch }}-gcc-fortran
+             mingw-w64-${{ matrix.arch }}-openblas
+             mingw-w64-${{ matrix.arch }}-lapack
+             mingw-w64-${{ matrix.arch }}-python
+             mingw-w64-${{ matrix.arch }}-python-pip
+             mingw-w64-${{ matrix.arch }}-meson
+             mingw-w64-${{ matrix.arch }}-ninja
+             mingw-w64-${{ matrix.arch }}-binutils
+         
+       # Try a fully static build (no libgcc_s/libgfortran/libstdc++/winpthread DLLs)
+       - name: Configure build (static)
+         run: >
+           meson setup ${{ env.BUILD_DIR }}
+           -Ddefault_library=static
+           -Dlapack=netlib
+           -Db_lto=true
+           --warnlevel=0
+         env:
+           FC: gfortran
+           CC: gcc
+           # Make pkg-config prefer static libs
+           PKG_CONFIG_STATIC: "1"
+           # Force static link of runtimes & winpthread
+           LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed"
+         #   CFLAGS: "-O2"
+         #   FFLAGS: "-O2"
+         
+       - name: Build project
+         run: meson compile -C ${{ env.BUILD_DIR }}
+         
+       - name: Run unit tests
+         run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+         env:
+           OMP_NUM_THREADS: 1
+         
+       - name: Install package
+         run: |
+           DESTDIR="$PWD/install" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+           # Strip binaries to shrink the artifact
+           if [ -f "install/mingw64/bin/xtb.exe" ]; then x86_64-w64-mingw32-strip install/mingw64/bin/xtb.exe || true; fi
+           bsdtar -acf xtb-windows-static.zip -C install .
+         
+       # Sanity check: ensure no MinGW runtime DLLs are required
+       - name: Verify static runtime (no MinGW DLL deps)
+         run: |
+           EXE="install/mingw64/bin/xtb.exe"
+           if [ -f "$EXE" ]; then
+             echo "Checking $EXE for DLL dependencies…"
+             objdump -p "$EXE" | tr -d '\r' | awk '/DLL Name:/ {print $3}' | tee deps.txt
+             if grep -Eiq 'libgcc_s|libstdc\+\+|libgfortran|libwinpthread' deps.txt; then
+               echo "::error::Found dynamic MinGW runtime dependencies; build is not fully static."
+               exit 1
+             fi
+           else
+             echo "::warning::Executable not found at $EXE (install layout may differ). Skipping check."
+           fi
+         
+       - name: Upload artifact
+         uses: actions/upload-artifact@v4
+         with:
+           name: xtb-windows-static
+           path: xtb-windows-static.zip
+
+
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
       if: github.event_name == 'push'
