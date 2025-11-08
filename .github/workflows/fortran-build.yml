@@ -644,7 +644,7 @@ jobs:
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
-           EXE="xtb-bleed-windows/bin/xtb.exe"
+           EXE="../xtb-bleed-windows/bin/xtb.exe"
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
