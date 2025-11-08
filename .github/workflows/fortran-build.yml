@@ -53,7 +53,7 @@ jobs:
          - name: Build project
            run: meson compile -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
-           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120
            env:
             OMP_NUM_THREADS: 2,1
          - name: Upload coverage report
@@ -123,7 +123,7 @@ jobs:
          - name: Build project
            run: meson compile -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
-           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120
            env:
             OMP_NUM_THREADS: 2,1
    xtb-lightweight-cmake-build:
@@ -189,7 +189,7 @@ jobs:
          - name: Build project
            run: meson compile -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
-           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
+           run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120
            env:
             OMP_NUM_THREADS: 1
    intel-meson-build:
@@ -234,7 +234,7 @@ jobs:
            run: ninja -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
            run: >-
-            meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --num-processes 1 --no-rebuild --suite xtb -t 120
+            meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --num-processes 1 --no-rebuild -t 120
            env:
             OMP_NUM_THREADS: 2,1
          - name: Install package
@@ -332,7 +332,7 @@ jobs:
            run: ninja -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
            run: >-
-            meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --num-processes 1 --no-rebuild --suite xtb -t 120
+            meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --num-processes 1 --no-rebuild -t 120
            env:
             OMP_NUM_THREADS: 2,1
    # Inspired from https://github.com/endless-sky/endless-sky
