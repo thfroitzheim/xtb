@@ -345,11 +345,9 @@ jobs:
      defaults:
        run:
          shell: msys2 {0}
- 
      steps:
        - name: Checkout code
          uses: actions/checkout@v4
- 
        - name: Setup MSYS2 toolchain
          uses: msys2/setup-msys2@v2
          with:
@@ -367,8 +365,7 @@ jobs:
              mingw-w64-${{ matrix.arch }}-binutils
              mingw-w64-${{ matrix.arch }}-ntldd
              zip
- 
-       # Force a flat install root like on Linux: /bin, /lib, /share under DESTDIR
+       # Configure static build with an absolute install location
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
@@ -387,35 +384,22 @@ jobs:
            CFLAGS: "-fno-strict-aliasing"
            FFLAGS: "-fno-strict-aliasing"
            LDFLAGS: "-static -static-libgcc -static-libgfortran -static-libstdc++ -Wl,--as-needed -lquadmath"
-
        - name: Build project
          run: |
            meson compile -C ${{ env.BUILD_DIR }}
-           pwd
-       
        - name: Run unit tests
          run: |
            meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
-           pwd
          env:
            OMP_NUM_THREADS: 2
-
-       # Install next to _build into ./xtb-bleed-windows
        - name: Install package
          run: |
            meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-           pwd
-           # sanity check
-           test -f "xtb-bleed-windows/bin/xtb.exe" || { echo "::error::xtb.exe not found at $ROOT/bin"; find "$ROOT" -maxdepth 4 -name xtb.exe; exit 1; }
-
-       # Copy ONLY BLAS/LAPACK if xtb.exe imports them
+       # Add BLAS/LAPACK DLLs if xtb.exe imports them
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
-           set -euo pipefail
-
            EXE="xtb-bleed-windows/bin/xtb.exe"
            [ -f "$EXE" ] || { echo "::error::$EXE not found after install"; exit 1; }
-
            for want in libblas.dll liblapack.dll; do
              if objdump -p "$EXE" \
                   | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//Ip' \
@@ -434,19 +418,15 @@ jobs:
                echo "$want not referenced by xtb.exe; skipping."
              fi
            done
-
        - name: Create distributable zip
          run: |
            zip -r xtb-bleed-windows.zip xtb-bleed-windows 
-
        - name: Upload binary
          if: github.event_name == 'push'
          uses: actions/upload-artifact@v4
          with:
            name: xtb-bleed-windows.zip
            path: xtb-bleed-windows.zip
-
-
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
       if: github.event_name == 'push'
