@@ -611,7 +611,7 @@ jobs:
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
-           --prefix=${{ env.INSTALL_PREFIX }}
+           --prefix=/
            --libdir=lib
            -Ddefault_library=static
            -Dlapack=netlib
@@ -620,7 +620,6 @@ jobs:
          env:
            CC: gcc
            FC: gfortran
-           INSTALL_PREFIX: ${{ env.PWD }}/xtb-bleed-windows
            PKG_CONFIG_ALL_STATIC: "1"
            CFLAGS: "-fno-strict-aliasing"
            FFLAGS: "-fno-strict-aliasing"
@@ -639,13 +638,13 @@ jobs:
          run: |
            meson install -C ${{ env.BUILD_DIR }} --no-rebuild
          env:
-           DESTDIR: ${{ env.PWD }}/xtb-bleed-windows
+           DESTDIR: xtb-bleed-windows
 
        # Copy ONLY direct BLAS/LAPACK if xtb.exe actually imports them
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
-           EXE="${{ env.INSTALL_PREFIX }}/bin/xtb.exe"
+           EXE="xtb-bleed-windows/bin/xtb.exe"
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
@@ -655,7 +654,7 @@ jobs:
                path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
                if [ -n "${path:-}" ] && [ -f "$path" ]; then
                  echo "Bundling $want from $path"
-                 cp -n "$path" "${{ env.INSTALL_PREFIX }}/bin/"
+                 cp -n "$path" "xtb-bleed-windows/bin/"
                else
                  echo "::warning::$want referenced but could not be resolved with ntldd"
                fi
@@ -667,7 +666,7 @@ jobs:
        - name: Create distributable zip
          run: |
            set -euo pipefail
-           zip -r xtb-bleed-windows.zip ${{ env.PWD }}/xtb-bleed-windows 
+           zip -r xtb-bleed-windows.zip xtb-bleed-windows 
 
        - name: Upload binary
          if: github.event_name == 'push'
