@@ -613,8 +613,6 @@ jobs:
            meson setup ${{ env.BUILD_DIR }}
            --prefix=/
            --libdir=lib
-           --bindir=bin
-           --datadir=share
            -Ddefault_library=static
            -Dlapack=netlib
            -Db_lto=false
@@ -636,21 +634,17 @@ jobs:
          env:
            OMP_NUM_THREADS: 2
  
-       - name: Install package (to ./xtb-win64)
+       - name: Install package
          run: |
-           set -euo pipefail
-           INSTALL_ROOT="$PWD/xtb-win64"
-           DESTDIR="$INSTALL_ROOT" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
-           if [ -f "$INSTALL_ROOT/bin/xtb.exe" ]; then
-             x86_64-w64-mingw32-strip "$INSTALL_ROOT/bin/xtb.exe" || true
-           fi
-           echo "INSTALL_ROOT=$INSTALL_ROOT" >> "$GITHUB_ENV"
- 
+           meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+         env:
+           DESTDIR: ${{ env.PWD }}/xtb-bleed-windows
+
        # Copy ONLY the explicitly imported BLAS/LAPACK DLLs (skip system DLLs)
        - name: Add BLAS/LAPACK DLLs if referenced
          run: |
            set -euo pipefail
-           EXE="$INSTALL_ROOT/bin/xtb.exe"
+           EXE="${{ env.PWD }}/xtb-bleed-windows/bin/xtb.exe"
            if [ ! -f "$EXE" ]; then
              echo "::error::$EXE not found after install"; exit 1
            fi
@@ -661,7 +655,7 @@ jobs:
                path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} $1==want {print $3; exit}')"
                if [ -n "${path:-}" ] && [ -f "$path" ]; then
                  echo "Bundling $want from $path"
-                 cp -n "$path" "$INSTALL_ROOT/bin/"
+                 cp -n "$path" "${{ env.PWD }}/xtb-bleed-windows/bin/"
                else
                  echo "::warning::$want referenced but could not be resolved with ntldd"
                fi
@@ -669,22 +663,18 @@ jobs:
                echo "$want not referenced by xtb.exe; skipping."
              fi
            done
- 
-       - name: Create distributable zip (entire install/)
+
+       - name: Create distributable zip
          run: |
            set -euo pipefail
-           mkdir -p artifacts
-           (cd "$INSTALL_ROOT" && zip -r ../artifacts/xtb-win64.zip .)
- 
-       - name: Upload artifact
+           zip -r xtb-bleed-windows.zip ${{ env.PWD }}/xtb-bleed-windows 
+
+       - name: Upload binary
+         if: github.event_name == 'push'
          uses: actions/upload-artifact@v4
          with:
-           name: xtb-win64-bundle
-           path: artifacts/xtb-win64.zip
-           if-no-files-found: error
-           overwrite: true
-
-
+           name: xtb-bleed-windows.zip
+           path: xtb-bleed-windows.zip
 
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
