@@ -435,7 +435,7 @@ jobs:
        - name: Run unit tests
          run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
          env:
-           OMP_NUM_THREADS: 1
+           OMP_NUM_THREADS: 2
          
        - name: Install package
          run: |
@@ -521,37 +521,41 @@ jobs:
        - name: Verify bundled direct dependencies only
          shell: msys2 {0}
          run: |
-           set -euo pipefail
-           pushd bundle/bin >/dev/null
-       
-           ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
-       
-           # Build allowlist = direct imports (lowercased, excluding system)
-           mapfile -t allowed < <(objdump -p xtb.exe | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]' | grep -Ev "$ignore_re")
-       
-           # 1) Every allowed DLL must exist in the bundle
-           missing=0
-           for name in "${allowed[@]}"; do
-             if [ ! -f "$name" ]; then
-               # try case-insensitive match
-               if ! ls -1 | tr '[:upper:]' '[:lower:]' | grep -qx "$name"; then
-                 echo "::error::Missing direct dependency $name in bundle/bin"
-                 missing=1
-               fi
-             fi
-           done
-       
-           # 2) No extra DLLs are present (keep bundle minimal)
-           for f in *.dll 2>/dev/null; do
-             lf="$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')"
-             if ! printf "%s\n" "${allowed[@]}" | grep -qx "$lf"; then
-               echo "::error::Extra DLL bundled that is not a direct import: $f"
-               missing=1
-             fi
-           done
-       
-           popd >/dev/null
-           [ $missing -eq 0 ]
+            set -euo pipefail
+            pushd bundle/bin >/dev/null
+                  
+            # Ensure empty globs don't expand to the literal pattern
+            shopt -s nullglob
+                  
+            ignore_re='^(kernel32\.dll|msvcrt\.dll|ucrtbase\.dll|vcruntime140(_1)?\.dll|api-ms-win-.*|k32.*\.dll|advapi32\.dll|ws2_32\.dll|sechost\.dll|user32\.dll|ole32\.dll)$'
+                  
+            # Build allowlist of direct (non-system) imports
+            mapfile -t allowed < <(
+              objdump -p xtb.exe | sed -n 's/ \+DLL Name: //p' \
+              | tr '[:upper:]' '[:lower:]' | grep -Ev "$ignore_re"
+            )
+                  
+            missing=0
+                  
+            # 1) Every allowed DLL must exist in the bundle
+            for name in "${allowed[@]}"; do
+              if ! ls -1 | tr '[:upper:]' '[:lower:]' | grep -qx "$name"; then
+                echo "::error::Missing direct dependency $name in bundle/bin"
+                missing=1
+              fi
+            done
+                  
+            # 2) No extra DLLs present
+            for f in *.dll; do
+              lf="$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')"
+              if ! printf "%s\n" "${allowed[@]}" | grep -qx "$lf"; then
+                echo "::error::Extra DLL bundled that is not a direct import: $f"
+                missing=1
+              fi
+            done
+                  
+            popd >/dev/null
+            [ $missing -eq 0 ]
                 
        # Produce the final zip
        - name: Create distributable zip
