@@ -429,26 +429,62 @@ jobs:
            path: xtb-bleed-windows.zip
    windows-intel-meson-static-build:
      runs-on: windows-latest
-     defaults:
-       run:
-         shell: cmd
      env:
        BUILD_DIR: _build
        OUTPUT_WINDOWS_INTEL: xtb-bleed-windows-intel.zip
-   
      steps:
-       - name: Checkout
+       - name: Checkout code
          uses: actions/checkout@v4
    
-       - name: Setup Python
+       - name: Setup Python + Meson/Ninja
          uses: actions/setup-python@v5
          with:
            python-version: '3.x'
+       - run: pip install meson==1.7.0 ninja
    
-       - name: Install Meson & Ninja
-         run: pip install meson==1.7.0 ninja
+       # Install Intel oneAPI (Compiler + MKL) silently
+       # 1) Get latest "Base Toolkit" ONLINE installer (contains the C/C++/Fortran compiler)
+       # 2) Get latest "HPC Toolkit" ONLINE installer (contains MKL)
+       # Replace the two URLs below with current ones from Intel’s site.
+       - name: Download oneAPI installers
+         shell: powershell
+         run: |
+           $ProgressPreference = 'SilentlyContinue'
+           # ↓↓↓ Update these 2 URLs to the current Base/HPC web installers ↓↓↓
+           $baseUrl = 'https://registrationcenter-download.intel.com/akdlm/IRC_NAS/<BASE_ID>/w_BaseKit_p_<ver>_online.exe'
+           $hpcUrl  = 'https://registrationcenter-download.intel.com/akdlm/IRC_NAS/<HPC_ID>/w_HPCKit_p_<ver>_online.exe'
+           Invoke-WebRequest -Uri $baseUrl -OutFile base.exe
+           Invoke-WebRequest -Uri $hpcUrl  -OutFile hpc.exe
+           Get-ChildItem -Name
    
-       - name: Configure (Intel ifx/icx, MKL, OpenMP, static CRT)
+       - name: Install oneAPI Base (compiler) silently
+         shell: powershell
+         run: |
+           # --eula accept : accept license
+           # --silent      : no UI
+           # --continue-with-optional-error : don’t fail if optional components fail
+           # Components: keep it minimal; compiler is in Base Toolkit
+           Start-Process -FilePath .\base.exe `
+             -ArgumentList '--eula=accept','--silent','--continue-with-optional-error' `
+             -NoNewWindow -Wait
+   
+       - name: Install oneAPI HPC (MKL) silently
+         shell: powershell
+         run: |
+           # Installs MKL from the HPC Toolkit
+           Start-Process -FilePath .\hpc.exe `
+             -ArgumentList '--eula=accept','--silent','--continue-with-optional-error' `
+             -NoNewWindow -Wait
+   
+       - name: Initialize oneAPI environment (cmd)
+         shell: cmd
+         run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
+           ifx --version
+           icx --version
+   
+       - name: Configure build (Intel static + MKL parallel + OpenMP)
+         shell: cmd
          env:
            CC: icx
            CXX: icx
@@ -463,31 +499,48 @@ jobs:
              -Db_vscrt=mt ^
              --buildtype=release ^
              --warnlevel=0 ^
-             -Dfortran_args="/Qopenmp" ^
              -Dc_args="/Qopenmp" ^
-             -Dfortran_link_args="/Qopenmp-link:static /Qstatic-intel /Qmkl:parallel" ^
-             -Dc_link_args="/Qopenmp-link:static"
+             -Dfortran_args="/Qopenmp" ^
+             -Dc_link_args="/Qopenmp-link:static" ^
+             -Dfortran_link_args="/Qopenmp-link:static /Qstatic-intel /Qmkl:parallel"
+           meson configure %BUILD_DIR%
    
        - name: Build
+         shell: cmd
          run: |
            call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
            meson compile -C %BUILD_DIR%
    
-       - name: Test
+       - name: Run unit tests
+         shell: cmd
          env:
            OMP_NUM_THREADS: 2
          run: |
            call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
            meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
    
-       - name: Install
+       - name: Install package
+         shell: cmd
          run: |
            call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
            meson install -C %BUILD_DIR% --no-rebuild
    
-       - name: Zip
+       # MKL + OpenMP may still pull a few Intel DLLs if something can’t be linked static.
+       # If xtb.exe references them, copy them next to the EXE (similar to your MinGW DLL bundling step).
+       - name: Bundle Intel runtimes if referenced
          shell: powershell
-         run: Compress-Archive -Path xtb-bleed-windows-intel -DestinationPath $env:OUTPUT_WINDOWS_INTEL -Force
+         run: |
+           $exe = "xtb-bleed-windows-intel\bin\xtb.exe"
+           if (!(Test-Path $exe)) { throw "$exe not found" }
+           # likely DLLs: libiomp5md.dll (OpenMP), mkl_*.dll (MKL), libirc*.dll, svml_dispmd.dll, etc.
+           # Try to discover via dumpbin
+           & "$Env:VSINSTALLDIR\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" /DEPENDENTS $exe 2>$null | Out-String | Tee-Object deps.txt
+           Get-Content deps.txt
+   
+       - name: Zip artifact
+         shell: powershell
+         run: |
+           Compress-Archive -Path xtb-bleed-windows-intel -DestinationPath $Env:OUTPUT_WINDOWS_INTEL
    
        - name: Upload artifact
          if: github.event_name == 'push'
@@ -503,6 +556,9 @@ jobs:
       needs:
          - intel-meson-build
          - mingw-meson-static-build
+      permissions:
+         contents: write
+         workflows: write
       env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          RELEASE_TAG: bleed
