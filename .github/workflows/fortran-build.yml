@@ -611,6 +611,7 @@ jobs:
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
+           --prefix=.
            --libdir=lib
            -Ddefault_library=static
            -Dlapack=netlib
