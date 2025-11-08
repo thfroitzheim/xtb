@@ -611,7 +611,7 @@ jobs:
        - name: Configure build (static)
          run: >
            meson setup ${{ env.BUILD_DIR }}
-           --prefix=.
+           --prefix="$PWD/xtb-bleed-windows"
            --libdir=lib
            -Ddefault_library=static
            -Dlapack=netlib
@@ -641,11 +641,13 @@ jobs:
        # Install next to _build into ./xtb-bleed-windows
        - name: Install package
          run: |
-           ROOT="$(pwd)/xtb-bleed-windows"
-           DESTDIR="$ROOT" meson install -C ${{ env.BUILD_DIR }} --no-rebuild
+           meson install -C ${{ env.BUILD_DIR }} --no-rebuild
            pwd
            # sanity check
-           test -f "$ROOT/bin/xtb.exe" || { echo "::error::xtb.exe not found at $ROOT/bin"; find "$ROOT" -maxdepth 4 -name xtb.exe; exit 1; }
+           test -f "xtb-bleed-windows/bin/xtb.exe" || { echo "::error::xtb.exe not found at $ROOT/bin"; find "$ROOT" -maxdepth 4 -name xtb.exe; exit 1; }
+
+# ROOT="$(pwd)/xtb-bleed-windows"
+# DESTDIR="$ROOT" 
 
        # Copy ONLY BLAS/LAPACK if xtb.exe imports them
        - name: Add BLAS/LAPACK DLLs if referenced
@@ -653,7 +655,6 @@ jobs:
            set -euo pipefail
            EXE="xtb-bleed-windows/bin/xtb.exe"
            pwd
-           echo "$EXE"
            [ -f "$EXE" ] || { echo "::error::$EXE not found after install"; exit 1; }
            mapfile -t imports < <(objdump -p "$EXE" | sed -n 's/ \+DLL Name: //p' | tr '[:upper:]' '[:lower:]')
            for want in libblas.dll liblapack.dll; do
@@ -669,10 +670,9 @@ jobs:
                echo "$want not referenced by xtb.exe; skipping."
              fi
            done
-       
+
        - name: Create distributable zip
          run: |
-           set -euo pipefail
            zip -r xtb-bleed-windows.zip xtb-bleed-windows 
 
        - name: Upload binary
