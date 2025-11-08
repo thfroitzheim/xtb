@@ -534,6 +534,14 @@ jobs:
            mkdir -p artifacts
            (cd bundle && zip -r ../artifacts/xtb-win64.zip .)
 
+       
+       - name: Upload artifact (bundled DLL build)
+         uses: actions/upload-artifact@v4
+         with:
+            name: xtb-win64-bundle
+            path: artifacts/xtb-win64.zip
+            if-no-files-found: error
+            overwrite: true
 
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
