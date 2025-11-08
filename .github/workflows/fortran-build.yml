@@ -427,11 +427,17 @@ jobs:
          with:
            name: xtb-bleed-windows.zip
            path: xtb-bleed-windows.zip
-   windows-intel-meson-static-build:
-     runs-on: windows-latest
+
+   macos-meson-static-bundle:
+     runs-on: ${{ matrix.os }}
+     strategy:
+       fail-fast: false
+       matrix:
+         os: [macos-latest]   # add 'macos-15-intel' too if you want an Intel build
+         gcc_ver: [14]
      env:
        BUILD_DIR: _build
-       OUTPUT_WINDOWS_INTEL: xtb-bleed-windows-intel.zip
+       OUTPUT_MACOS: xtb-bleed-macos.zip
      steps:
        - name: Checkout code
          uses: actions/checkout@v4
@@ -441,113 +447,122 @@ jobs:
          with:
            python-version: '3.x'
        - run: pip install meson==1.7.0 ninja
-   
-       # Install Intel oneAPI (Compiler + MKL) silently
-       # 1) Get latest "Base Toolkit" ONLINE installer (contains the C/C++/Fortran compiler)
-       # 2) Get latest "HPC Toolkit" ONLINE installer (contains MKL)
-       # Replace the two URLs below with current ones from Intel’s site.
-       - name: Download oneAPI installers
-         shell: powershell
+         
+       - name: Install toolchain and OpenBLAS
          run: |
-           $ProgressPreference = 'SilentlyContinue'
-           # ↓↓↓ Update these 2 URLs to the current Base/HPC web installers ↓↓↓
-           $baseUrl = 'https://registrationcenter-download.intel.com/akdlm/IRC_NAS/<BASE_ID>/w_BaseKit_p_<ver>_online.exe'
-           $hpcUrl  = 'https://registrationcenter-download.intel.com/akdlm/IRC_NAS/<HPC_ID>/w_HPCKit_p_<ver>_online.exe'
-           Invoke-WebRequest -Uri $baseUrl -OutFile base.exe
-           Invoke-WebRequest -Uri $hpcUrl  -OutFile hpc.exe
-           Get-ChildItem -Name
-   
-       - name: Install oneAPI Base (compiler) silently
-         shell: powershell
-         run: |
-           # --eula accept : accept license
-           # --silent      : no UI
-           # --continue-with-optional-error : don’t fail if optional components fail
-           # Components: keep it minimal; compiler is in Base Toolkit
-           Start-Process -FilePath .\base.exe `
-             -ArgumentList '--eula=accept','--silent','--continue-with-optional-error' `
-             -NoNewWindow -Wait
-   
-       - name: Install oneAPI HPC (MKL) silently
-         shell: powershell
-         run: |
-           # Installs MKL from the HPC Toolkit
-           Start-Process -FilePath .\hpc.exe `
-             -ArgumentList '--eula=accept','--silent','--continue-with-optional-error' `
-             -NoNewWindow -Wait
-   
-       - name: Initialize oneAPI environment (cmd)
-         shell: cmd
-         run: |
-           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
-           ifx --version
-           icx --version
-   
-       - name: Configure build (Intel static + MKL parallel + OpenMP)
-         shell: cmd
+           brew update
+           brew install gcc@${{ matrix.gcc_ver }} openblas gnu-tar
+           echo "HOMEBREW_PREFIX=$(brew --prefix)" >> $GITHUB_ENV
+           echo "OPENBLAS_PREFIX=$(brew --prefix openblas)" >> $GITHUB_ENV
+           # Unversioned CC/FC variables for Meson
+           echo "CC=$(brew --prefix)/bin/gcc-${{ matrix.gcc_ver }}" >> $GITHUB_ENV
+           echo "FC=$(brew --prefix)/bin/gfortran-${{ matrix.gcc_ver }}" >> $GITHUB_ENV
+           # Ensure pkg-config can find OpenBLAS on both Intel/Apple Silicon
+           echo "PKG_CONFIG_PATH=$OPENBLAS_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
+         
+       - name: Configure build (static libs + OpenMP + OpenBLAS)
          env:
-           CC: icx
-           CXX: icx
-           FC: ifx
+           CC: ${{ env.CC }}
+           FC: ${{ env.FC }}
          run: |
-           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
-           meson setup %BUILD_DIR% ^
-             --prefix="%CD%\xtb-bleed-windows-intel" ^
-             --libdir=lib ^
-             -Ddefault_library=static ^
-             -Dlapack=mkl ^
-             -Db_vscrt=mt ^
-             --buildtype=release ^
-             --warnlevel=0 ^
-             -Dc_args="/Qopenmp" ^
-             -Dfortran_args="/Qopenmp" ^
-             -Dc_link_args="/Qopenmp-link:static" ^
-             -Dfortran_link_args="/Qopenmp-link:static /Qstatic-intel /Qmkl:parallel"
-           meson configure %BUILD_DIR%
-   
+           meson setup $BUILD_DIR \
+             --prefix="$PWD/xtb-bleed-macos" \
+             --libdir=lib \
+             -Ddefault_library=static \
+             -Dlapack=openblas \
+             -Db_lto=false \
+             --buildtype=release \
+             --warnlevel=0 \
+             -Dc_args="-fopenmp" \
+             -Dfortran_args="-fopenmp" \
+             -Dc_link_args="-fopenmp" \
+             -Dfortran_link_args="-fopenmp"
+           meson configure $BUILD_DIR
+         
        - name: Build
-         shell: cmd
-         run: |
-           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
-           meson compile -C %BUILD_DIR%
-   
+         run: meson compile -C $BUILD_DIR
+         
        - name: Run unit tests
-         shell: cmd
          env:
            OMP_NUM_THREADS: 2
+         run: meson test -C $BUILD_DIR --print-errorlogs --no-rebuild -t 120 --suite xtb
+         
+       - name: Install into bundle dir
+         run: meson install -C $BUILD_DIR --no-rebuild
+         
+       # Copy dependent Homebrew dylibs into xtb-bleed-macos/lib and fix rpaths
+       - name: Vendor non-system dylibs and fix rpaths
+         shell: bash
          run: |
-           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
-           meson test -C %BUILD_DIR% --print-errorlogs --no-rebuild -t 120 --suite xtb
-   
-       - name: Install package
-         shell: cmd
+           set -euo pipefail
+           APPDIR="$PWD/xtb-bleed-macos"
+           EXE="$APPDIR/bin/xtb"
+           LIBDIR="$APPDIR/lib"
+           mkdir -p "$LIBDIR"
+         
+           needs_copy() {
+             # We only vendor Homebrew libs; skip system ones
+             [[ "$1" == /opt/homebrew/* || "$1" == /usr/local/* ]]
+           }
+         
+           # Collect direct deps from the executable
+           mapfile -t DEPS < <(otool -L "$EXE" | awk 'NR>1 {print $1}')
+           COPIED=()
+           for dep in "${DEPS[@]}"; do
+             needs_copy "$dep" || continue
+             base="$(basename "$dep")"
+             dst="$LIBDIR/$base"
+             [[ -f "$dst" ]] || cp -a "$dep" "$dst"
+             COPIED+=("$dst")
+           done
+         
+           # Recursively pull deps of copied libs (one pass is usually enough for gcc/openblas stack)
+           for lib in "${COPIED[@]}"; do
+             mapfile -t SUB < <(otool -L "$lib" | awk 'NR>1 {print $1}')
+             for dep in "${SUB[@]}"; do
+               needs_copy "$dep" || continue
+               base="$(basename "$dep")"
+               dst="$LIBDIR/$base"
+               [[ -f "$dst" ]] || cp -a "$dep" "$dst"
+             done
+           done
+         
+           # Give every vendored dylib an @rpath install name
+           for lib in "$LIBDIR"/*.dylib; do
+             install_name_tool -id "@rpath/$(basename "$lib")" "$lib"
+           done
+         
+           # Make the executable search ../lib at runtime
+           install_name_tool -add_rpath "@loader_path/../lib" "$EXE" || true
+         
+           # Repoint the executable’s Homebrew deps to @rpath/…
+           for dep in "${DEPS[@]}"; do
+             needs_copy "$dep" || continue
+             install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$EXE"
+           done
+         
+           # Repoint each vendored dylib to other vendored dylibs via @rpath
+           for lib in "$LIBDIR"/*.dylib; do
+             mapfile -t SUB < <(otool -L "$lib" | awk 'NR>1 {print $1}')
+             for dep in "${SUB[@]}"; do
+               needs_copy "$dep" || continue
+               install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$lib"
+             done
+           done
+         
+           echo "Final deps of xtb:"
+           otool -L "$EXE"
+         
+       - name: Create distributable zip
          run: |
-           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64
-           meson install -C %BUILD_DIR% --no-rebuild
-   
-       # MKL + OpenMP may still pull a few Intel DLLs if something can’t be linked static.
-       # If xtb.exe references them, copy them next to the EXE (similar to your MinGW DLL bundling step).
-       - name: Bundle Intel runtimes if referenced
-         shell: powershell
-         run: |
-           $exe = "xtb-bleed-windows-intel\bin\xtb.exe"
-           if (!(Test-Path $exe)) { throw "$exe not found" }
-           # likely DLLs: libiomp5md.dll (OpenMP), mkl_*.dll (MKL), libirc*.dll, svml_dispmd.dll, etc.
-           # Try to discover via dumpbin
-           & "$Env:VSINSTALLDIR\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" /DEPENDENTS $exe 2>$null | Out-String | Tee-Object deps.txt
-           Get-Content deps.txt
-   
-       - name: Zip artifact
-         shell: powershell
-         run: |
-           Compress-Archive -Path xtb-bleed-windows-intel -DestinationPath $Env:OUTPUT_WINDOWS_INTEL
-   
+           /usr/bin/zip -r "$OUTPUT_MACOS" xtb-bleed-macos
+         
        - name: Upload artifact
          if: github.event_name == 'push'
          uses: actions/upload-artifact@v4
          with:
-           name: xtb-bleed-windows-intel.zip
-           path: xtb-bleed-windows-intel.zip
+           name: xtb-bleed-macos.zip
+           path: xtb-bleed-macos.zip
 
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
