@@ -58,6 +58,7 @@ jobs:
             OMP_NUM_THREADS: 2,1
          - name: Upload coverage report
            run: bash <(curl -s https://codecov.io/bash)
+
    gcc-cmake-build:
       runs-on: ${{ matrix.os }}
       strategy:
@@ -92,6 +93,7 @@ jobs:
            working-directory: ${{ env.BUILD_DIR }}
            env:
             OMP_NUM_THREADS: 2,1
+
    xtb-lightweight-meson-build:
       runs-on: ${{ matrix.os }}
       strategy:
@@ -126,6 +128,7 @@ jobs:
            run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
            env:
             OMP_NUM_THREADS: 2,1
+
    xtb-lightweight-cmake-build:
       runs-on: ${{ matrix.os }}
       strategy:
@@ -159,6 +162,7 @@ jobs:
            working-directory: ${{ env.BUILD_DIR }}
            env:
             OMP_NUM_THREADS: 2,1
+
    # Test native MinGW Windows build
    mingw-meson-build:
       runs-on: windows-latest
@@ -192,6 +196,7 @@ jobs:
            run: meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --no-rebuild -t 120 --suite xtb
            env:
             OMP_NUM_THREADS: 1
+
    intel-meson-build:
       runs-on: ${{ matrix.os }}
       strategy:
@@ -249,6 +254,7 @@ jobs:
            with:
             name: xtb-bleed.tar.xz
             path: xtb-bleed.tar.xz
+
    intel-ifx-cmake-build:
       runs-on: ${{ matrix.os }}
       strategy:
@@ -293,6 +299,7 @@ jobs:
            working-directory: ${{ env.BUILD_DIR }}
            env:
             OMP_NUM_THREADS: 2,1
+
    intel-ifx-meson-build:
       runs-on: ${{ matrix.os }}
       strategy:
@@ -335,6 +342,7 @@ jobs:
             meson test -C ${{ env.BUILD_DIR }} --print-errorlogs --num-processes 1 --no-rebuild --suite xtb -t 120
            env:
             OMP_NUM_THREADS: 2,1
+
    mingw-meson-static-build:
       runs-on: windows-latest
       strategy:
@@ -427,7 +435,30 @@ jobs:
            with:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
-           
+
+   # NEW: smoke test the Windows zip on a fresh windows-latest runner
+   windows-zip-smoke-test:
+      if: github.event_name == 'push'
+      runs-on: windows-latest
+      needs:
+         - mingw-meson-static-build
+      steps:
+         - name: Download Windows artifact
+           uses: actions/download-artifact@v4.1.7
+           with:
+             name: xtb-bleed-windows.zip
+             path: .
+         - name: Extract zip
+           shell: pwsh
+           run: |
+             Expand-Archive -LiteralPath 'xtb-bleed-windows.zip' -DestinationPath 'xtb-test' -Force
+         - name: Smoke-test xtb.exe
+           shell: pwsh
+           run: |
+             Set-Location 'xtb-test/xtb-bleed-windows/bin'
+             .\xtb.exe --version
+             .\xtb.exe --help
+
    # Inspired from https://github.com/endless-sky/endless-sky
    continuous-delivery:
       if: github.event_name == 'push'
@@ -435,6 +466,7 @@ jobs:
       needs:
          - intel-meson-build
          - mingw-meson-static-build
+         - windows-zip-smoke-test
       env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          RELEASE_TAG: bleed
