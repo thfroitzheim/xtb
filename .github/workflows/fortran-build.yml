@@ -291,7 +291,13 @@ jobs:
             printenv >> $GITHUB_ENV
          - name: Configure cmake build
            run: >-
-            cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build }} -DCMAKE_C_COMPILER=icx -DCMAKE_Fortran_COMPILER=ifx -DBLA_VENDOR=Intel10_64lp -DWITH_TBLITE=false 
+            cmake -B ${{ env.BUILD_DIR }} -G Ninja
+            -DCMAKE_BUILD_TYPE=${{ matrix.build }}
+            -DCMAKE_C_COMPILER=icx
+            -DCMAKE_Fortran_COMPILER=ifx
+            -DBLA_VENDOR=Intel10_64lp
+            -DWITH_TBLITE=ON
+            -DWITH_CPCMX=ON
          - name: Build project
            run: ninja -C ${{ env.BUILD_DIR }}
          - name: Run unit tests
@@ -436,7 +442,7 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
-   # NEW: Windows Intel static-ish build (ifort + ifx)
+   # Windows Intel static-ish build (ifort + ifx) with MKL + tblite + cpcmx
    windows-intel-static-cmake-build:
       runs-on: windows-latest
       strategy:
@@ -449,18 +455,39 @@ jobs:
       steps:
          - name: Checkout code
            uses: actions/checkout@v4
+
          - name: Setup Intel Fortran
            uses: fortran-lang/setup-fortran@v1
            with:
             compiler: ${{ matrix.toolchain.compiler }}
             version:  ${{ matrix.toolchain.version }}
+
+         - name: Install Intel oneMKL (winget)
+           shell: pwsh
+           run: |
+             winget install --id Intel.oneMKL -e `
+               --accept-package-agreements `
+               --accept-source-agreements `
+               --silent
+
+             $mklRoot = Join-Path "${env:ProgramFiles(x86)}" "Intel\oneAPI\mkl\latest"
+             if (-not (Test-Path $mklRoot)) {
+               Write-Error "MKL not found at $mklRoot after installation"
+               exit 1
+             }
+
+             "MKLROOT=$mklRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+             "CMAKE_PREFIX_PATH=$mklRoot;$env:CMAKE_PREFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
             python-version: 3.x
+
          - name: Install CMake & Ninja
            run: python -m pip install cmake ninja
-         - name: Configure CMake (Intel + MKL, static libs)
+
+         - name: Configure CMake (Intel + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
            run: |
              cmake -B $env:BUILD_DIR `
@@ -469,12 +496,14 @@ jobs:
                -DCMAKE_Fortran_COMPILER="$env:FC" `
                -DCMAKE_C_COMPILER="$env:CC" `
                -DBLA_VENDOR=Intel10_64lp `
-               -DWITH_TBLITE=false `
-               -DWITH_CPCMX=false `
+               -DWITH_TBLITE=ON `
+               -DWITH_CPCMX=ON `
                -DBUILD_SHARED_LIBS=OFF
+
          - name: Build project
            shell: pwsh
            run: cmake --build $env:BUILD_DIR --config ${{ matrix.build }}
+
          - name: Run unit tests
            shell: pwsh
            working-directory: ${{ env.BUILD_DIR }}
@@ -482,18 +511,21 @@ jobs:
             OMP_NUM_THREADS: 2
            run: |
              ctest --output-on-failure -R 'xtb/*'
+
          - name: Install into prefix
            shell: pwsh
            run: |
              cmake --install $env:BUILD_DIR `
                --config ${{ matrix.build }} `
                --prefix "$PWD/xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}"
+
          - name: Create distributable zip
            shell: pwsh
            run: |
              $zipName = "xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}.zip"
              Compress-Archive -Path "xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}" -DestinationPath $zipName -Force
              Write-Host "Created $zipName"
+
          - name: Upload Intel Windows artifact
            if: github.event_name == 'push'
            uses: actions/upload-artifact@v4
@@ -501,7 +533,7 @@ jobs:
             name: xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}.zip
             path: xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}.zip
 
-   # NEW: smoke test the Windows zip on a fresh windows-latest runner
+   # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
       if: github.event_name == 'push'
       runs-on: windows-latest
