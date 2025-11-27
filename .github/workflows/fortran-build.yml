@@ -436,6 +436,71 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
+   # NEW: Windows Intel static-ish build (ifort + ifx)
+   windows-intel-static-cmake-build:
+      runs-on: windows-latest
+      strategy:
+         fail-fast: false
+         matrix:
+            build: [Release]
+            toolchain:
+              - {compiler: intel-classic, version: '2021.10'}
+              - {compiler: intel,         version: '2025.0'}
+      steps:
+         - name: Checkout code
+           uses: actions/checkout@v4
+         - name: Setup Intel Fortran
+           uses: fortran-lang/setup-fortran@v1
+           with:
+            compiler: ${{ matrix.toolchain.compiler }}
+            version:  ${{ matrix.toolchain.version }}
+         - name: Setup Python
+           uses: actions/setup-python@v5
+           with:
+            python-version: 3.x
+         - name: Install CMake & Ninja
+           run: python -m pip install cmake ninja
+         - name: Configure CMake (Intel + MKL, static libs)
+           shell: pwsh
+           run: |
+             cmake -B $env:BUILD_DIR `
+               -G Ninja `
+               -DCMAKE_BUILD_TYPE=${{ matrix.build }} `
+               -DCMAKE_Fortran_COMPILER="$env:FC" `
+               -DCMAKE_C_COMPILER="$env:CC" `
+               -DBLA_VENDOR=Intel10_64lp `
+               -DWITH_TBLITE=false `
+               -DWITH_CPCMX=false `
+               -DBUILD_SHARED_LIBS=OFF
+         - name: Build project
+           shell: pwsh
+           run: cmake --build $env:BUILD_DIR --config ${{ matrix.build }}
+         - name: Run unit tests
+           shell: pwsh
+           working-directory: ${{ env.BUILD_DIR }}
+           env:
+            OMP_NUM_THREADS: 2
+           run: |
+             ctest --output-on-failure -R 'xtb/*'
+         - name: Install into prefix
+           shell: pwsh
+           run: |
+             cmake --install $env:BUILD_DIR `
+               --config ${{ matrix.build }} `
+               --prefix "$PWD/xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}"
+         - name: Create distributable zip
+           shell: pwsh
+           run: |
+             $zipName = "xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}.zip"
+             Compress-Archive -Path "xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}" -DestinationPath $zipName -Force
+             Write-Host "Created $zipName"
+         - name: Upload Intel Windows artifact
+           if: github.event_name == 'push'
+           uses: actions/upload-artifact@v4
+           with:
+            name: xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}.zip
+            path: xtb-bleed-windows-intel-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}.zip
+
    # NEW: smoke test the Windows zip on a fresh windows-latest runner
    windows-zip-smoke-test:
       if: github.event_name == 'push'
