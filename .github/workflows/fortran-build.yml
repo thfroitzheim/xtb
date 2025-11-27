@@ -544,42 +544,34 @@ jobs:
          - name: Install CMake & Ninja
            run: python -m pip install cmake ninja
 
-         - name: Normalize Intel ifx/icx compiler paths and MKL hints
+         - name: Install Intel oneMKL and set MKLROOT
            shell: pwsh
            run: |
-             Write-Host "FC before normalization: $env:FC"
-             Write-Host "CC before normalization: $env:CC"
+             winget install --id Intel.oneMKL -e `
+               --accept-package-agreements `
+               --accept-source-agreements `
+               --silent
 
-             $fcCmd = Get-Command $env:FC -ErrorAction SilentlyContinue
-             if (-not $fcCmd) {
-               Write-Error "Fortran compiler '$env:FC' not found in PATH"
+             $mklRoot = Join-Path "${env:ProgramFiles(x86)}" "Intel\oneAPI\mkl\latest"
+             if (-not (Test-Path $mklRoot)) {
+               Write-Error "MKL not found at $mklRoot after installation"
                exit 1
              }
 
-             $ccName = if ($env:CC) { $env:CC } else { "icx" }
-             $ccCmd  = Get-Command $ccName -ErrorAction SilentlyContinue
-             if (-not $ccCmd) {
-               Write-Error "C compiler '$ccName' not found in PATH"
-               exit 1
-             }
+             "MKLROOT=$mklRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+             "CMAKE_PREFIX_PATH=$mklRoot;$env:CMAKE_PREFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+         - name: Resolve Intel compilers to full paths
+           shell: pwsh
+           run: |
+             $fcCmd = Get-Command $env:FC -ErrorAction Stop
+             $ccCmd = Get-Command $env:CC -ErrorAction Stop
 
              "FC=$($fcCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
              "CC=$($ccCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-             if (-not $env:MKLROOT) {
-               $candidate = Join-Path "${env:ProgramFiles(x86)}" "Intel\oneAPI\mkl\latest"
-               if (Test-Path $candidate) {
-                 $env:MKLROOT = $candidate
-               }
-             }
-
-             if ($env:MKLROOT) {
-               Write-Host "Using MKLROOT=$env:MKLROOT"
-               "MKLROOT=$env:MKLROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
-               "CMAKE_PREFIX_PATH=$($env:MKLROOT);$($env:CMAKE_PREFIX_PATH)" | Out-File -FilePath $env:GITHUB_ENV -Append
-             } else {
-               Write-Warning "MKLROOT not set; FindBLAS/FindLAPACK may fail."
-             }
+             Write-Host "Using Fortran compiler: $($fcCmd.Source)"
+             Write-Host "Using C compiler: $($ccCmd.Source)"
 
          - name: Configure CMake (ifx + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
@@ -589,6 +581,7 @@ jobs:
                -DCMAKE_BUILD_TYPE=Release `
                -DCMAKE_Fortran_COMPILER="$env:FC" `
                -DCMAKE_C_COMPILER="$env:CC" `
+               -DMKLROOT="$env:MKLROOT" `
                -DBLA_VENDOR=Intel10_64lp `
                -DWITH_TBLITE=ON `
                -DWITH_CPCMX=ON `
@@ -605,27 +598,6 @@ jobs:
             OMP_NUM_THREADS: 2
            run: |
              ctest --output-on-failure -R 'xtb/*'
-
-         - name: Install into prefix
-           shell: pwsh
-           run: |
-             cmake --install $env:BUILD_DIR `
-               --config Release `
-               --prefix "$PWD/xtb-bleed-windows-intel-ifx"
-
-         - name: Create distributable zip
-           shell: pwsh
-           run: |
-             $zipName = "xtb-bleed-windows-intel-ifx-2025.0.zip"
-             Compress-Archive -Path "xtb-bleed-windows-intel-ifx" -DestinationPath $zipName -Force
-             Write-Host "Created $zipName"
-
-         - name: Upload Intel IFX Windows artifact
-           if: github.event_name == 'push'
-           uses: actions/upload-artifact@v4
-           with:
-            name: xtb-bleed-windows-intel-ifx-2025.0.zip
-            path: xtb-bleed-windows-intel-ifx-2025.0.zip
 
    # Windows Intel static-ish build with MKL + tblite + cpcmx (IFORT)
    windows-intel-ifort-static-cmake-build:
@@ -650,42 +622,34 @@ jobs:
          - name: Install CMake & Ninja
            run: python -m pip install cmake ninja
 
-         - name: Normalize Intel ifort/icl compiler paths and MKL hints
+         - name: Install Intel oneMKL and set MKLROOT
            shell: pwsh
            run: |
-             Write-Host "FC before normalization: $env:FC"
-             Write-Host "CC before normalization: $env:CC"
+             winget install --id Intel.oneMKL -e `
+               --accept-package-agreements `
+               --accept-source-agreements `
+               --silent
 
-             $fcCmd = Get-Command $env:FC -ErrorAction SilentlyContinue
-             if (-not $fcCmd) {
-               Write-Error "Fortran compiler '$env:FC' not found in PATH"
+             $mklRoot = Join-Path "${env:ProgramFiles(x86)}" "Intel\oneAPI\mkl\latest"
+             if (-not (Test-Path $mklRoot)) {
+               Write-Error "MKL not found at $mklRoot after installation"
                exit 1
              }
 
-             $ccName = if ($env:CC) { $env:CC } else { "icl" }
-             $ccCmd  = Get-Command $ccName -ErrorAction SilentlyContinue
-             if (-not $ccCmd) {
-               Write-Error "C compiler '$ccName' not found in PATH"
-               exit 1
-             }
+             "MKLROOT=$mklRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+             "CMAKE_PREFIX_PATH=$mklRoot;$env:CMAKE_PREFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+         - name: Resolve Intel compilers to full paths
+           shell: pwsh
+           run: |
+             $fcCmd = Get-Command $env:FC -ErrorAction Stop
+             $ccCmd = Get-Command $env:CC -ErrorAction Stop
 
              "FC=$($fcCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
              "CC=$($ccCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-             if (-not $env:MKLROOT) {
-               $candidate = Join-Path "${env:ProgramFiles(x86)}" "Intel\oneAPI\mkl\latest"
-               if (Test-Path $candidate) {
-                 $env:MKLROOT = $candidate
-               }
-             }
-
-             if ($env:MKLROOT) {
-               Write-Host "Using MKLROOT=$env:MKLROOT"
-               "MKLROOT=$env:MKLROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
-               "CMAKE_PREFIX_PATH=$($env:MKLROOT);$($env:CMAKE_PREFIX_PATH)" | Out-File -FilePath $env:GITHUB_ENV -Append
-             } else {
-               Write-Warning "MKLROOT not set; FindBLAS/FindLAPACK may fail."
-             }
+             Write-Host "Using Fortran compiler: $($fcCmd.Source)"
+             Write-Host "Using C compiler: $($ccCmd.Source)"
 
          - name: Configure CMake (ifort + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
@@ -695,6 +659,7 @@ jobs:
                -DCMAKE_BUILD_TYPE=Release `
                -DCMAKE_Fortran_COMPILER="$env:FC" `
                -DCMAKE_C_COMPILER="$env:CC" `
+               -DMKLROOT="$env:MKLROOT" `
                -DBLA_VENDOR=Intel10_64lp `
                -DWITH_TBLITE=ON `
                -DWITH_CPCMX=ON `
@@ -711,27 +676,6 @@ jobs:
             OMP_NUM_THREADS: 2
            run: |
              ctest --output-on-failure -R 'xtb/*'
-
-         - name: Install into prefix
-           shell: pwsh
-           run: |
-             cmake --install $env:BUILD_DIR `
-               --config Release `
-               --prefix "$PWD/xtb-bleed-windows-intel-ifort"
-
-         - name: Create distributable zip
-           shell: pwsh
-           run: |
-             $zipName = "xtb-bleed-windows-intel-ifort-2021.10.zip"
-             Compress-Archive -Path "xtb-bleed-windows-intel-ifort" -DestinationPath $zipName -Force
-             Write-Host "Created $zipName"
-
-         - name: Upload Intel IFORT Windows artifact
-           if: github.event_name == 'push'
-           uses: actions/upload-artifact@v4
-           with:
-            name: xtb-bleed-windows-intel-ifort-2021.10.zip
-            path: xtb-bleed-windows-intel-ifort-2021.10.zip
 
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
