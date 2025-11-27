@@ -561,18 +561,6 @@ jobs:
              "MKLROOT=$mklRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
              "CMAKE_PREFIX_PATH=$mklRoot;$env:CMAKE_PREFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-         - name: Resolve Intel compilers to full paths
-           shell: pwsh
-           run: |
-             $fcCmd = Get-Command $env:FC -ErrorAction Stop
-             $ccCmd = Get-Command $env:CC -ErrorAction Stop
-
-             "FC=$($fcCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
-             "CC=$($ccCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-             Write-Host "Using Fortran compiler: $($fcCmd.Source)"
-             Write-Host "Using C compiler: $($ccCmd.Source)"
-
          - name: Configure CMake (ifx + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
            run: |
@@ -638,18 +626,6 @@ jobs:
 
              "MKLROOT=$mklRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
              "CMAKE_PREFIX_PATH=$mklRoot;$env:CMAKE_PREFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-         - name: Resolve Intel compilers to full paths
-           shell: pwsh
-           run: |
-             $fcCmd = Get-Command $env:FC -ErrorAction Stop
-             $ccCmd = Get-Command $env:CC -ErrorAction Stop
-
-             "FC=$($fcCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
-             "CC=$($ccCmd.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-             Write-Host "Using Fortran compiler: $($fcCmd.Source)"
-             Write-Host "Using C compiler: $($ccCmd.Source)"
 
          - name: Configure CMake (ifort + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
