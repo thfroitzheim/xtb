@@ -556,7 +556,7 @@ jobs:
            create-args: >-
              openblas
              pkg-config
-             meson=1.7.0
+             meson=1.8.3
              ninja
            generate-run-shell: false
    
