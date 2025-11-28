@@ -592,6 +592,7 @@ jobs:
          shell: cmd
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
+             -Dfortran_args="/fpp /names:lowercase /assume:underscore /DDFTD4_STATIC /DTBLITE_STATIC /DMCTC_STATIC /DMSTORE_STATIC /DMULTICHARGE_STATIC /DS_DFTD3_STATIC /D__GNUC__" ^
              -Ddefault_library=static ^
              -Dlapack=openblas
    
