@@ -529,17 +529,9 @@ jobs:
          matrix:
             toolchain:
               - {compiler: intel, version: '2024.1'}
-              # - {compiler: intel, version: '2025.0'} 
-              - {compiler: intel, version: '2025.1'}
       steps:
-         - name: Checkout code
+         - name: Checkout codea
            uses: actions/checkout@v4
-
-         - name: Setup Fortran
-           uses: fortran-lang/setup-fortran@v1
-           with:
-            compiler: ${{ matrix.toolchain.compiler }}
-            version: ${{ matrix.toolchain.version }}
 
          - name: Setup Python
            uses: actions/setup-python@v5
@@ -547,6 +539,16 @@ jobs:
             python-version: 3.x
 
          - run: pip install meson==1.7.0 ninja
+
+         # Switched to intel/setup-oneapi to ensure MKL is included.
+         # setup-fortran installs HPC kit which often lacks MKL.
+         - name: Setup Intel oneAPI
+           uses: intel/setup-oneapi@v3
+           with:
+             components: |
+               intel-oneapi-compiler-fortran
+               intel-oneapi-compiler-dpcpp-cpp
+               intel-oneapi-mkl-devel
 
          # On Windows, we combine configuration, build, and test into one block
          # because the environment variables set by setvars.bat are only local 
