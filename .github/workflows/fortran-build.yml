@@ -532,21 +532,21 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
+         # Pin Python to a stable version (3.12). 
+         # 3.x was pulling 3.14 (alpha), causing internal Meson errors.
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
-            python-version: 3.x
+            python-version: '3.12'
 
-         # Installs ifx/ifort (HPC Kit)
          - name: Setup Fortran
            uses: fortran-lang/setup-fortran@v1
            with:
             compiler: ${{ matrix.toolchain.compiler }}
             version: ${{ matrix.toolchain.version }}
 
-         # Install OpenBLAS and pkg-config via Micromamba.
-         # This is much faster and reliable than downloading MKL installers.
-         # We use 'conda-forge' which provides well-maintained OpenBLAS binaries.
+         # Install OpenBLAS via Micromamba (conda-forge).
+         # This successfully installed in the previous run.
          - name: Install OpenBLAS via Micromamba
            uses: mamba-org/setup-micromamba@v2
            with:
@@ -562,27 +562,23 @@ jobs:
 
          - run: pip install meson==1.7.0 ninja
 
-         # Combine setup and build.
-         # We configure PKG_CONFIG_PATH so Meson finds OpenBLAS automatically.
          - name: Build and Test
            shell: cmd
            run: |
             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
             
             REM --- Configure OpenBLAS from Micromamba ---
-            REM Conda on Windows puts libs/headers in <env>\Library
             set "BLAS_ENV_PATH=%MAMBA_ROOT_PREFIX%\envs\blas-env\Library"
             
             REM Add pkg-config path so Meson can find openblas.pc
             set "PKG_CONFIG_PATH=%BLAS_ENV_PATH%\lib\pkgconfig;%PKG_CONFIG_PATH%"
             
-            REM Add bin to PATH so openblas.dll is found during tests
+            REM Add bin to PATH so openblas.dll is found during tests and pkg-config.exe is found during setup
             set "PATH=%BLAS_ENV_PATH%\bin;%PATH%"
             
             echo PKG_CONFIG_PATH is: %PKG_CONFIG_PATH%
             
             REM --- Build & Test ---
-            REM Switched -Dlapack=mkl to -Dlapack=openblas
             meson setup builddir --prefix=%CD%/install --libdir=lib ^
             -Dfortran_link_args="/libs:static" ^
             -Ddefault_library=static ^
