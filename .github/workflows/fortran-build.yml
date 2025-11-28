@@ -556,38 +556,37 @@ jobs:
            create-args: >-
              openblas
              pkg-config
-             meson=1.7.0
+             meson
              ninja
            generate-run-shell: false
    
-      #  # KEY STEP: Configure and PERSIST environment variables
-      #  - name: Configure Environment
-      #    shell: cmd
-      #    run: |
-      #      call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+       # KEY STEP: Configure, Fix PC files, and PERSIST environment variables
+       - name: Configure Environment
+         shell: cmd
+         run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
    
-      #      REM --- Micromamba env root ---
-      #      set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
-      #      set "BLAS_ENV_LIB=%BLAS_ENV_ROOT%\Library"
+           REM --- Micromamba env root ---
+           set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
+           set "BLAS_ENV_LIB=%BLAS_ENV_ROOT%\Library"
+           set "PKG_CONFIG_DIR=%BLAS_ENV_LIB%\lib\pkgconfig"
    
-      #      REM --- Persist Intel vars if you really want them ---
-      #      echo LIB=%LIB%>> %GITHUB_ENV%
-      #      echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
-      #      echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
-      #      echo IFORT_COMPILER=%IFORT_COMPILER%>> %GITHUB_ENV%
+           REM --- FIX: Copy openblas.pc to lapack.pc so Meson finds it ---
+           echo Copying openblas.pc to lapack.pc...
+           copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\lapack.pc"
+           copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\blas.pc"
    
-      #      REM --- PKG_CONFIG_PATH for OpenBLAS .pc ---
-      #      echo PKG_CONFIG_PATH=%BLAS_ENV_LIB%\lib\pkgconfig>> %GITHUB_ENV%
+           REM --- Persist Intel vars to GITHUB_ENV ---
+           echo LIB=%LIB%>> %GITHUB_ENV%
+           echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
+           echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
+           echo IFORT_COMPILER=%IFORT_COMPILER%>> %GITHUB_ENV%
    
-      #      REM --- Make meson & ninja visible (Scripts) + DLLs (Library\bin) ---
-      #      echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
+           REM --- PKG_CONFIG_PATH for OpenBLAS .pc ---
+           echo PKG_CONFIG_PATH=%PKG_CONFIG_DIR%>> %GITHUB_ENV%
    
-      #      REM (Optional, if you later want to switch away from icx:)
-      #      REM echo CC=cl>> %GITHUB_ENV%
-      #      REM echo CXX=cl>> %GITHUB_ENV%
-   
-      #      echo BLAS_ENV_ROOT=%BLAS_ENV_ROOT%
-      #      echo Updated PATH and PKG_CONFIG_PATH in GITHUB_ENV
+           REM --- Make meson & ninja visible (Scripts) + DLLs (Library\bin) ---
+           echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
    
        - name: Meson Setup
          shell: cmd
