@@ -521,153 +521,153 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
-intel-ifx-meson-build-windows:
-  runs-on: windows-latest
-  strategy:
-    fail-fast: false
-    matrix:
-      toolchain:
-        - { compiler: intel, version: '2024.1' }
-
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    # Pin Python to 3.12 to avoid Meson/3.14 incompatibilities
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-
-    - name: Setup Fortran
-      uses: fortran-lang/setup-fortran@v1
-      with:
-        compiler: ${{ matrix.toolchain.compiler }}
-        version: ${{ matrix.toolchain.version }}
-
-    - name: Install OpenBLAS via Micromamba
-      uses: mamba-org/setup-micromamba@v2
-      with:
-        environment-name: blas-env
-        condarc: |
-          channels:
-            - conda-forge
-            - defaults
-        create-args: >-
-          openblas
-          pkg-config
-          meson
-          ninja
-        generate-run-shell: false
-
-    # KEY STEP: Configure Environment, Fix PC files, and Generate Native File
-    - name: Configure Environment
-      shell: cmd
-      run: |
-        call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
-
-        REM --- Micromamba env root ---
-        set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
-        set "BLAS_ENV_LIB=%BLAS_ENV_ROOT%\Library"
-        set "PKG_CONFIG_DIR=%BLAS_ENV_LIB%\lib\pkgconfig"
-
-        REM --- FIX: Copy openblas.pc to lapack.pc so Meson finds it ---
-        echo Copying openblas.pc to lapack.pc...
-        copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\lapack.pc"
-        copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\blas.pc"
-
-        REM --- Persist Intel vars to GITHUB_ENV ---
-        echo LIB=%LIB%>> %GITHUB_ENV%
-        echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
-        echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
-        echo IFORT_COMPILER=%IFORT_COMPILER%>> %GITHUB_ENV%
-
-        REM --- PKG_CONFIG_PATH for OpenBLAS .pc ---
-        echo PKG_CONFIG_PATH=%PKG_CONFIG_DIR%>> %GITHUB_ENV%
-
-        REM --- Make meson & ninja visible (Scripts) + DLLs (Library\bin) ---
-        echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
-
-        REM --- GENERATE NATIVE FILE ---
-        REM 1. /names:lowercase /assume:underscore: Match OpenBLAS naming convention.
-        REM 2. /D__GNUC__: Triggers correct code paths in libraries.
-        REM 3. /libs:static /threads: Force COMPILER to request static Intel Runtime libs (libifcoremt.lib etc).
-        REM 4. /Qopenmp-link:static: Force LINKER to use static OpenMP library.
-        REM 5. /ALTERNATENAME: Fixes mismatch between 'omp_..._' and 'omp_...'.
-        REM 6. /FORCE:MULTIPLE: Fixes LNK2005 error (frexp defined in both libmmt and libucrt).
-        (
-        echo [binaries]
-        echo fortran = 'ifx'
-        echo c = 'icx'
-        echo [built-in options]
-        echo fortran_args = ['/fpp', '/names:lowercase', '/assume:underscore', '/D__GNUC__', '/libs:static', '/threads']
-        echo fortran_link_args = ['/Qopenmp', '/Qopenmp-link:static', '/ALTERNATENAME:omp_get_num_threads_=omp_get_num_threads', '/ALTERNATENAME:omp_set_num_threads_=omp_set_num_threads', '/FORCE:MULTIPLE']
-        echo default_library = 'static'
-        ) > native.ini
-        type native.ini
-
-    - name: Meson Setup
-      shell: cmd
-      run: |
-        meson setup builddir --prefix=%CD%/install --libdir=lib ^
-          --native-file native.ini ^
-          -Dlapack=openblas ^
-          -Dcpcmx=disabled
-
-    # PATCH STEP: Brute-force removal of DLL attributes
-    - name: Patch Source Code (Remove DLL Attributes)
-      shell: powershell
-      run: |
-        Write-Host "Patching source files in subprojects to remove DLLEXPORT/DLLIMPORT..."
-        # Recursively find all .f90 and .F90 files in subprojects/
-        Get-ChildItem -Path subprojects -Recurse -Include *.f90,*.F90 | ForEach-Object {
-            $file = $_.FullName
-            # Check if file has problematic lines
-            $content = Get-Content $file
-            if ($content -match 'DLLEXPORT|DLLIMPORT') {
-                Write-Host "  Patching: $file"
-                # Filter out lines containing DLLEXPORT or DLLIMPORT to fix static linking
-                $newContent = $content | Where-Object { $_ -notmatch 'DLLEXPORT|DLLIMPORT' }
-                Set-Content -Path $file -Value $newContent
-            }
-        }
-
-    - name: Build
-      shell: cmd
-      run: ninja -C builddir
-
-    - name: Test
-      shell: cmd
-      run: |
-        set OMP_NUM_THREADS=2,1
-        meson test -C builddir --print-errorlogs --num-processes 1 ^
-          --no-rebuild --suite xtb -t 120
-
-    - name: Install
-      shell: cmd
-      run: |
-        ninja -C builddir install
-
-    # Optional: Bundle OpenBLAS DLL
-    - name: Bundle OpenBLAS DLL
-      shell: cmd
-      run: |
-        set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
-        if exist "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" (
-          copy "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" "install\bin\"
-        )
-
-    - name: Package artifact
-      shell: cmd
-      run: |
-        cd install
-        powershell -Command "Compress-Archive * ../xtb-bleed-windows-ifx-openblas.zip"
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: xtb-bleed-windows-ifx-openblas.zip
-        path: xtb-bleed-windows-ifx-openblas.zip
+   intel-ifx-meson-build-windows:
+     runs-on: windows-latest
+     strategy:
+       fail-fast: false
+       matrix:
+         toolchain:
+           - { compiler: intel, version: '2024.1' }
+   
+     steps:
+       - name: Checkout code
+         uses: actions/checkout@v4
+   
+       # Pin Python to 3.12 to avoid Meson/3.14 incompatibilities
+       - name: Setup Python
+         uses: actions/setup-python@v5
+         with:
+           python-version: '3.12'
+   
+       - name: Setup Fortran
+         uses: fortran-lang/setup-fortran@v1
+         with:
+           compiler: ${{ matrix.toolchain.compiler }}
+           version: ${{ matrix.toolchain.version }}
+   
+       - name: Install OpenBLAS via Micromamba
+         uses: mamba-org/setup-micromamba@v2
+         with:
+           environment-name: blas-env
+           condarc: |
+             channels:
+               - conda-forge
+               - defaults
+           create-args: >-
+             openblas
+             pkg-config
+             meson
+             ninja
+           generate-run-shell: false
+   
+       # KEY STEP: Configure Environment, Fix PC files, and Generate Native File
+       - name: Configure Environment
+         shell: cmd
+         run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+   
+           REM --- Micromamba env root ---
+           set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
+           set "BLAS_ENV_LIB=%BLAS_ENV_ROOT%\Library"
+           set "PKG_CONFIG_DIR=%BLAS_ENV_LIB%\lib\pkgconfig"
+   
+           REM --- FIX: Copy openblas.pc to lapack.pc so Meson finds it ---
+           echo Copying openblas.pc to lapack.pc...
+           copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\lapack.pc"
+           copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\blas.pc"
+   
+           REM --- Persist Intel vars to GITHUB_ENV ---
+           echo LIB=%LIB%>> %GITHUB_ENV%
+           echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
+           echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
+           echo IFORT_COMPILER=%IFORT_COMPILER%>> %GITHUB_ENV%
+   
+           REM --- PKG_CONFIG_PATH for OpenBLAS .pc ---
+           echo PKG_CONFIG_PATH=%PKG_CONFIG_DIR%>> %GITHUB_ENV%
+   
+           REM --- Make meson & ninja visible (Scripts) + DLLs (Library\bin) ---
+           echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
+   
+           REM --- GENERATE NATIVE FILE ---
+           REM 1. /names:lowercase /assume:underscore: Match OpenBLAS naming convention.
+           REM 2. /D__GNUC__: Triggers correct code paths in libraries.
+           REM 3. /libs:static /threads: Force COMPILER to request static Intel Runtime libs (libifcoremt.lib etc).
+           REM 4. /Qopenmp-link:static: Force LINKER to use static OpenMP library.
+           REM 5. /ALTERNATENAME: Fixes mismatch between 'omp_..._' and 'omp_...'.
+           REM 6. /FORCE:MULTIPLE: Fixes LNK2005 error (frexp defined in both libmmt and libucrt).
+           (
+           echo [binaries]
+           echo fortran = 'ifx'
+           echo c = 'icx'
+           echo [built-in options]
+           echo fortran_args = ['/fpp', '/names:lowercase', '/assume:underscore', '/D__GNUC__', '/libs:static', '/threads']
+           echo fortran_link_args = ['/Qopenmp', '/Qopenmp-link:static', '/ALTERNATENAME:omp_get_num_threads_=omp_get_num_threads', '/ALTERNATENAME:omp_set_num_threads_=omp_set_num_threads', '/FORCE:MULTIPLE']
+           echo default_library = 'static'
+           ) > native.ini
+           type native.ini
+   
+       - name: Meson Setup
+         shell: cmd
+         run: |
+           meson setup builddir --prefix=%CD%/install --libdir=lib ^
+             --native-file native.ini ^
+             -Dlapack=openblas ^
+             -Dcpcmx=disabled
+   
+       # PATCH STEP: Brute-force removal of DLL attributes
+       - name: Patch Source Code (Remove DLL Attributes)
+         shell: powershell
+         run: |
+           Write-Host "Patching source files in subprojects to remove DLLEXPORT/DLLIMPORT..."
+           # Recursively find all .f90 and .F90 files in subprojects/
+           Get-ChildItem -Path subprojects -Recurse -Include *.f90,*.F90 | ForEach-Object {
+               $file = $_.FullName
+               # Check if file has problematic lines
+               $content = Get-Content $file
+               if ($content -match 'DLLEXPORT|DLLIMPORT') {
+                   Write-Host "  Patching: $file"
+                   # Filter out lines containing DLLEXPORT or DLLIMPORT to fix static linking
+                   $newContent = $content | Where-Object { $_ -notmatch 'DLLEXPORT|DLLIMPORT' }
+                   Set-Content -Path $file -Value $newContent
+               }
+           }
+   
+       - name: Build
+         shell: cmd
+         run: ninja -C builddir
+   
+       - name: Test
+         shell: cmd
+         run: |
+           set OMP_NUM_THREADS=2,1
+           meson test -C builddir --print-errorlogs --num-processes 1 ^
+             --no-rebuild --suite xtb -t 120
+   
+       - name: Install
+         shell: cmd
+         run: |
+           ninja -C builddir install
+   
+       # Optional: Bundle OpenBLAS DLL
+       - name: Bundle OpenBLAS DLL
+         shell: cmd
+         run: |
+           set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
+           if exist "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" (
+             copy "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" "install\bin\"
+           )
+   
+       - name: Package artifact
+         shell: cmd
+         run: |
+           cd install
+           powershell -Command "Compress-Archive * ../xtb-bleed-windows-ifx-openblas.zip"
+   
+       - name: Upload artifact
+         uses: actions/upload-artifact@v4
+         with:
+           name: xtb-bleed-windows-ifx-openblas.zip
+           path: xtb-bleed-windows-ifx-openblas.zip
 
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
