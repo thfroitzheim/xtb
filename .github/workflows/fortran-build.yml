@@ -638,25 +638,34 @@ jobs:
          shell: cmd
          run: ninja -C builddir
    
-      #  - name: Test
-      #    shell: cmd
-      #    run: |
-      #      set OMP_NUM_THREADS=2,1
-      #      meson test -C builddir --print-errorlogs --num-processes 1 ^
-      #        --no-rebuild --suite xtb -t 120
-   
        - name: Install
          shell: cmd
          run: |
            ninja -C builddir install
    
-       # Optional: Bundle OpenBLAS DLL
-       - name: Bundle OpenBLAS DLL
+       # Bundle OpenBLAS AND missing Intel Runtime DLLs
+       - name: Bundle Runtime DLLs
          shell: cmd
          run: |
+           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+           
+           if not exist "install\bin" mkdir "install\bin"
+   
+           REM --- Bundle OpenBLAS ---
            set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
+           echo Bundling OpenBLAS...
            if exist "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" (
              copy "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" "install\bin\"
+           )
+   
+           REM --- Bundle Intel Runtime DLLs ---
+           REM 'where' locates them on the active PATH set by setvars
+           echo Bundling Intel Runtime DLLs...
+           for %%d in (libiomp5md.dll libifcoremd.dll libifportMD.dll libmmd.dll svml_dislmd.dll) do (
+             for /f "usebackq tokens=*" %%f in (`where %%d`) do (
+               echo Found %%f
+               copy "%%f" "install\bin\"
+             )
            )
    
        - name: Package artifact
@@ -670,6 +679,13 @@ jobs:
          with:
            name: xtb-bleed-windows-ifx-openblas.zip
            path: xtb-bleed-windows-ifx-openblas.zip
+   
+      #  - name: Test
+      #    shell: cmd
+      #    run: |
+      #      set OMP_NUM_THREADS=2,1
+      #      meson test -C builddir --print-errorlogs --num-processes 1 ^
+      #        --no-rebuild --suite xtb -t 120
    
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
