@@ -659,12 +659,18 @@ jobs:
            )
    
            REM --- Bundle Intel Runtime DLLs ---
-           REM 'where' locates them on the active PATH set by setvars
+           REM 'where' locates them on the active PATH set by setvars.
+           REM Corrected typo: svml_dislmd.dll -> svml_dispmd.dll
            echo Bundling Intel Runtime DLLs...
-           for %%d in (libiomp5md.dll libifcoremd.dll libifportMD.dll libmmd.dll svml_dislmd.dll) do (
-             for /f "usebackq tokens=*" %%f in (`where %%d`) do (
-               echo Found %%f
-               copy "%%f" "install\bin\"
+           for %%d in (libiomp5md.dll libifcoremd.dll libifportMD.dll libmmd.dll svml_dispmd.dll) do (
+             where /q %%d
+             if not errorlevel 1 (
+               for /f "usebackq tokens=*" %%f in (`where %%d`) do (
+                  echo Found %%f
+                  copy "%%f" "install\bin\"
+               )
+             ) else (
+               echo Warning: %%d not found in PATH.
              )
            )
    
@@ -679,7 +685,7 @@ jobs:
          with:
            name: xtb-bleed-windows-ifx-openblas.zip
            path: xtb-bleed-windows-ifx-openblas.zip
-   
+
       #  - name: Test
       #    shell: cmd
       #    run: |
