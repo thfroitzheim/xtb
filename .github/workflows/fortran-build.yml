@@ -562,7 +562,7 @@ jobs:
 
          - run: pip install meson==1.7.0 ninja
 
-         - name: Build and Test
+         - name: Configure paths
            shell: cmd
            run: |
             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
@@ -577,7 +577,10 @@ jobs:
             set "PATH=%BLAS_ENV_PATH%\bin;%PATH%"
             
             echo PKG_CONFIG_PATH is: %PKG_CONFIG_PATH%
-            
+
+         - name: Build and Test
+           shell: cmd
+           run: |
             REM --- Build & Test ---
             meson setup builddir --prefix=%CD%/install --libdir=lib ^
             -Dfortran_link_args="/libs:static" ^
