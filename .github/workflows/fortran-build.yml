@@ -592,8 +592,7 @@ jobs:
          shell: cmd
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
-             -Dfortran_link_args="/libs:static" ^
-             -Dfortran_args="/fpp" ^
+             -Dfortran_args="/fpp /names:lowercase /assume:underscore" ^
              -Ddefault_library=static ^
              -Dlapack=openblas
    
@@ -607,7 +606,6 @@ jobs:
            set OMP_NUM_THREADS=2,1
            meson test -C builddir --print-errorlogs --num-processes 1 ^
              --no-rebuild --suite xtb -t 120
-
 
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
