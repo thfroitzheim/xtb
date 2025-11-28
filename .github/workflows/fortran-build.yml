@@ -536,6 +536,11 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
+         - name: Setup Python
+           uses: actions/setup-python@v5
+           with:
+            python-version: 3.x
+
          # Installs ifx/ifort (HPC Kit)
          - name: Setup Fortran
            uses: fortran-lang/setup-fortran@v1
@@ -544,24 +549,54 @@ jobs:
             version: ${{ matrix.toolchain.version }}
 
          # Manually install MKL 2024.0 using the official offline installer.
-         # We use curl with a User-Agent to avoid 403 Forbidden errors.
+         # Uses Python to download to avoid curl/Invoke-WebRequest 403/Agent issues.
          - name: Install MKL
-           shell: cmd
+           shell: python
            run: |
-            curl -L --retry 5 --retry-delay 5 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o mkl_installer.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/67639f70-555e-4509-9bfa-d984c478d128/w_onemkl_p_2024.0.0.49657_offline.exe
-            
-            start /b /wait mkl_installer.exe -s -x -f mkl_extracted --log extract.log
-            
-            mkl_extracted\bootstrapper.exe -s --action install --components=intel.oneapi.win.mkl.devel --eula=accept -p=NEED_VS2022_INTEGRATION=0 --log-dir=.
-            
-            set installer_exit_code=%ERRORLEVEL%
-            echo Installer exit code: %installer_exit_code%
-            if %installer_exit_code% neq 0 exit /b %installer_exit_code%
+            import urllib.request
+            import shutil
+            import sys
+            import os
+            import subprocess
 
-         - name: Setup Python
-           uses: actions/setup-python@v5
-           with:
-            python-version: 3.x
+            # Intel MKL 2024.0 Offline Installer URL
+            url = "https://registrationcenter-download.intel.com/akdlm/IRC_NAS/67639f70-555e-4509-9bfa-d984c478d128/w_onemkl_p_2024.0.0.49657_offline.exe"
+            filename = "mkl_installer.exe"
+
+            print(f"Downloading MKL from {url}...")
+            # Use a standard browser User-Agent to prevent 403 Forbidden errors
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+            req = urllib.request.Request(url, headers=headers)
+            
+            try:
+                with urllib.request.urlopen(req) as response, open(filename, 'wb') as out_file:
+                    shutil.copyfileobj(response, out_file)
+            except Exception as e:
+                print(f"Download failed: {e}")
+                sys.exit(1)
+
+            file_size = os.path.getsize(filename)
+            print(f"Downloaded file size: {file_size} bytes")
+            
+            if file_size < 10 * 1024 * 1024: # Expecting > 10MB
+                print("Error: File size is too small. Download likely failed (e.g., 403 Forbidden page).")
+                sys.exit(1)
+
+            print("Extracting installer...")
+            subprocess.run([filename, "-s", "-x", "-f", "mkl_extracted"], check=True)
+
+            print("Installing MKL...")
+            # Install MKL Devel component silently
+            install_cmd = [
+                r"mkl_extracted\bootstrapper.exe",
+                "-s",
+                "--action", "install",
+                "--components=intel.oneapi.win.mkl.devel",
+                "--eula=accept",
+                "-p=NEED_VS2022_INTEGRATION=0",
+                "--log-dir=."
+            ]
+            subprocess.run(install_cmd, check=True)
 
          - run: pip install meson==1.7.0 ninja
 
