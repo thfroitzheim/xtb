@@ -527,8 +527,6 @@ jobs:
          fail-fast: false
          matrix:
             toolchain:
-              # We use 2023.2 for the compiler via setup-fortran.
-              # 2024.x standalone HPC installer issues are bypassed by this.
               - {compiler: intel, version: '2023.2'}
       steps:
          - name: Checkout code
@@ -546,38 +544,49 @@ jobs:
             compiler: ${{ matrix.toolchain.compiler }}
             version: ${{ matrix.toolchain.version }}
 
-         # Install MKL via Micromamba from the official Intel channel.
-         # This is much more reliable than scraping offline installers.
-         - name: Install MKL via Micromamba
+         # Install OpenBLAS and pkg-config via Micromamba.
+         # This is much faster and reliable than downloading MKL installers.
+         # We use 'conda-forge' which provides well-maintained OpenBLAS binaries.
+         - name: Install OpenBLAS via Micromamba
            uses: mamba-org/setup-micromamba@v2
            with:
-             environment-name: mkl-env
+             environment-name: blas-env
+             condarc: |
+               channels:
+                 - conda-forge
+                 - defaults
              create-args: >-
-               intel::mkl-devel
-             # We don't need to activate the shell for the whole job, 
-             # we just need the files to exist for the build step.
+               openblas
+               pkg-config
              generate-run-shell: false
 
          - run: pip install meson==1.7.0 ninja
 
-         # Combine setup and build. 
-         # We explicitly set MKLROOT to the Micromamba install location.
+         # Combine setup and build.
+         # We configure PKG_CONFIG_PATH so Meson finds OpenBLAS automatically.
          - name: Build and Test
            shell: cmd
            run: |
             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
             
-            REM Point MKLROOT to the Micromamba environment library path
-            set "MKLROOT=%MAMBA_ROOT_PREFIX%\envs\mkl-env\Library"
-            echo Using MKL from: %MKLROOT%
+            REM --- Configure OpenBLAS from Micromamba ---
+            REM Conda on Windows puts libs/headers in <env>\Library
+            set "BLAS_ENV_PATH=%MAMBA_ROOT_PREFIX%\envs\blas-env\Library"
             
-            REM Ensure Meson finds pkg-config files if needed (though MKLROOT is primary)
-            set "PKG_CONFIG_PATH=%MKLROOT%\lib\pkgconfig;%PKG_CONFIG_PATH%"
+            REM Add pkg-config path so Meson can find openblas.pc
+            set "PKG_CONFIG_PATH=%BLAS_ENV_PATH%\lib\pkgconfig;%PKG_CONFIG_PATH%"
             
+            REM Add bin to PATH so openblas.dll is found during tests
+            set "PATH=%BLAS_ENV_PATH%\bin;%PATH%"
+            
+            echo PKG_CONFIG_PATH is: %PKG_CONFIG_PATH%
+            
+            REM --- Build & Test ---
+            REM Switched -Dlapack=mkl to -Dlapack=openblas
             meson setup builddir --prefix=%CD%/install --libdir=lib ^
             -Dfortran_link_args="/libs:static" ^
             -Ddefault_library=static ^
-            -Dlapack=mkl ^
+            -Dlapack=openblas ^
             -Dtblite=disabled
             
             ninja -C builddir
