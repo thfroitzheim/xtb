@@ -530,6 +530,14 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
+         # oneAPI-style setup (compiler + MKL) inspired by oneapi-ci
+         - name: Setup Intel oneAPI (IFX + MKL)
+           uses: oneapi-src/setup-oneapi@v0
+           with:
+            components: |
+               intel.oneapi.win.compiler
+               intel.oneapi.win.mkl.devel
+
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
@@ -537,26 +545,6 @@ jobs:
 
          - name: Install CMake & Ninja
            run: python -m pip install cmake ninja
-
-         - name: Setup Intel oneAPI environment (ifx + MKL)
-           shell: cmd
-           run: |
-             @echo on
-             if not defined ONEAPI_ROOT (
-               set "ONEAPI_ROOT=C:\Program Files (x86)\Intel\oneAPI"
-             )
-             if not exist "%ONEAPI_ROOT%\setvars.bat" (
-               echo ERROR: "%ONEAPI_ROOT%\setvars.bat" not found.
-               dir "C:\Program Files (x86)\Intel\oneAPI"
-               exit /b 1
-             )
-             call "%ONEAPI_ROOT%\setvars.bat" intel64
-             if errorlevel 1 exit /b 1
-             rem Persist key vars for later steps
-             echo MKLROOT=%MKLROOT%>> "%GITHUB_ENV%"
-             echo PATH=%PATH%>> "%GITHUB_ENV%"
-             echo LIB=%LIB%>> "%GITHUB_ENV%"
-             echo INCLUDE=%INCLUDE%>> "%GITHUB_ENV%"
 
          - name: Configure CMake (ifx + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
@@ -592,6 +580,13 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
+         - name: Setup Intel oneAPI (IFORT + MKL)
+           uses: oneapi-src/setup-oneapi@v0
+           with:
+            components: |
+               intel.oneapi.win.ifort-compiler
+               intel.oneapi.win.mkl.devel
+
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
@@ -599,26 +594,6 @@ jobs:
 
          - name: Install CMake & Ninja
            run: python -m pip install cmake ninja
-
-         - name: Setup Intel oneAPI environment (ifort + MKL)
-           shell: cmd
-           run: |
-             @echo on
-             if not defined ONEAPI_ROOT (
-               set "ONEAPI_ROOT=C:\Program Files (x86)\Intel\oneAPI"
-             )
-             if not exist "%ONEAPI_ROOT%\setvars.bat" (
-               echo ERROR: "%ONEAPI_ROOT%\setvars.bat" not found.
-               dir "C:\Program Files (x86)\Intel\oneAPI"
-               exit /b 1
-             )
-             call "%ONEAPI_ROOT%\setvars.bat" intel64
-             if errorlevel 1 exit /b 1
-             rem Persist key vars for later steps
-             echo MKLROOT=%MKLROOT%>> "%GITHUB_ENV%"
-             echo PATH=%PATH%>> "%GITHUB_ENV%"
-             echo LIB=%LIB%>> "%GITHUB_ENV%"
-             echo INCLUDE=%INCLUDE%>> "%GITHUB_ENV%"
 
          - name: Configure CMake (ifort + MKL, static libs, tblite+cpcmx ON)
            shell: pwsh
