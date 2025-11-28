@@ -521,7 +521,7 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
-   intel-ifx-meson-build-windows:
+   windows-intel-ifx-meson-static:
      runs-on: windows-latest
      strategy:
        fail-fast: false
@@ -668,7 +668,7 @@ jobs:
          with:
            name: xtb-bleed-windows-ifx-openblas.zip
            path: xtb-bleed-windows-ifx-openblas.zip
-
+   
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
       if: github.event_name == 'push'
