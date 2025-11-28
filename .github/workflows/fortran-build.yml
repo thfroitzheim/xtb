@@ -593,9 +593,9 @@ jobs:
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
              -Dfortran_link_args="/libs:static" ^
+             -Dfortran_args="/fpp" ^
              -Ddefault_library=static ^
-             -Dlapack=openblas ^
-             -Dtblite=disabled
+             -Dlapack=openblas
    
        - name: Build
          shell: cmd
