@@ -486,19 +486,14 @@ jobs:
            run: |
             meson install -C ${{ env.BUILD_DIR }} --no-rebuild
 
-         # Force bundle known runtime DLLs (Direct & Transitive)
          - name: Bundle Runtime DLLs
            run: |
             [ -d "xtb-bleed-windows/bin" ] || mkdir -p "xtb-bleed-windows/bin"
             
-            # Define list of required DLLs. 
-            # Includes Transitive deps (gfortran, gcc, quadmath, winpthread) which objdump misses.
             WANTED_DLLS=("libblas.dll" "liblapack.dll" "libgfortran-5.dll" "libgcc_s_seh-1.dll" "libquadmath-0.dll" "libwinpthread-1.dll")
             
             for dll in "${WANTED_DLLS[@]}"; do
-              # Use 'which' to find the DLL in the MSYS2 path
-              dll_path=$(which "$dll" || true)
-              
+              dll_path=$(which "$dll" || true)              
               if [ -f "$dll_path" ]; then
                 echo "Bundling $dll from $dll_path"
                 cp "$dll_path" "xtb-bleed-windows/bin/"
@@ -535,14 +530,12 @@ jobs:
          with:
            python-version: '3.12'
 
-       # Automatically initializes Intel environment (PATH, LIB, INCLUDE)
        - name: Setup Fortran
          uses: fortran-lang/setup-fortran@v1
          with:
            compiler: ${{ matrix.toolchain.compiler }}
            version: ${{ matrix.toolchain.version }}
 
-       # Explicitly pin python=3.12 to avoid bleeding edge alpha versions
        - name: Install OpenBLAS via Micromamba
          uses: mamba-org/setup-micromamba@v2
          with:
@@ -559,25 +552,19 @@ jobs:
              ninja
            generate-run-shell: false
 
-       - name: Configure Environment
+       - name: Configure Environment with OpenBLAS location found by meson
          shell: cmd
          run: |
-           REM --- Micromamba env root ---
            set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
            set "BLAS_ENV_LIB=%BLAS_ENV_ROOT%\Library"
            set "PKG_CONFIG_DIR=%BLAS_ENV_LIB%\lib\pkgconfig"
 
-           REM --- FIX: Copy openblas.pc to lapack.pc so Meson finds it ---
-           echo Copying openblas.pc to lapack.pc...
            copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\lapack.pc"
            copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\blas.pc"
 
-           REM --- Persist Micromamba paths to GITHUB_ENV ---
            echo PKG_CONFIG_PATH=%PKG_CONFIG_DIR%>> %GITHUB_ENV%
            echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
 
-       # Direct CLI args instead of native.ini. 
-       # /ALTERNATENAME:system_=SYSTEM fixes the CPCM-X link error by mapping the mangled name to the Intel Runtime.
        - name: Meson Setup
          shell: cmd
          run: |
@@ -588,7 +575,7 @@ jobs:
              -Dfortran_args="/fpp /names:lowercase /assume:underscore /D__GNUC__ /libs:static /threads" ^
              -Dfortran_link_args="/Qopenmp /Qopenmp-link:static /ALTERNATENAME:omp_get_num_threads_=omp_get_num_threads /ALTERNATENAME:omp_set_num_threads_=omp_set_num_threads /ALTERNATENAME:system_=SYSTEM /FORCE:MULTIPLE"
 
-       - name: Patch Source Code
+       - name: Patch Source Code to remove DLLEXPORT/DLLIMPORT
          shell: powershell
          run: |
            Write-Host "Patching source files in subprojects to remove DLLEXPORT/DLLIMPORT..."
@@ -606,23 +593,27 @@ jobs:
          shell: cmd
          run: ninja -C builddir
 
+      #  - name: Test
+      #    shell: cmd
+      #    run: |
+      #      set OMP_NUM_THREADS=2,1
+      #      meson test -C builddir --print-errorlogs --num-processes 1 ^
+      #        --no-rebuild --suite xtb -t 120
+
        - name: Install
          shell: cmd
          run: ninja -C builddir install
 
-       - name: Bundle Runtime DLLs
+       - name: Bundle Runtime DLLs (OpenBLAS and IntelOMP)
          shell: cmd
          run: |
            if not exist "install\bin" mkdir "install\bin"
            
-           REM --- Bundle OpenBLAS ---
            set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
            if exist "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" (
              copy "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" "install\bin\"
            )
 
-           REM --- Bundle Intel Runtime DLLs ---
-           REM Setup-fortran puts these in PATH, so we can find them with 'where'
            for %%d in (libiomp5md.dll) do (
              where /q %%d
              if not errorlevel 1 (
@@ -634,8 +625,6 @@ jobs:
                echo Warning: %%d not found in PATH.
              )
            )
-
-      # libifcoremd.dll libifportMD.dll libmmd.dll svml_dispmd.dll
 
        - name: Package artifact
          shell: cmd
@@ -649,13 +638,6 @@ jobs:
            name: xtb-bleed-windows-ifx-openblas.zip
            path: xtb-bleed-windows-ifx-openblas.zip
 
-      #  - name: Test
-      #    shell: cmd
-      #    run: |
-      #      set OMP_NUM_THREADS=2,1
-      #      meson test -C builddir --print-errorlogs --num-processes 1 ^
-      #        --no-rebuild --suite xtb -t 120
-   
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
       if: github.event_name == 'push'
