@@ -486,29 +486,24 @@ jobs:
            run: |
             meson install -C ${{ env.BUILD_DIR }} --no-rebuild
 
-         # Add BLAS/LAPACK and GCC Runtime DLLs if xtb.exe imports them
-         - name: Add Runtime DLLs if referenced
+         # Force bundle known runtime DLLs (Direct & Transitive)
+         - name: Bundle Runtime DLLs
            run: |
-            EXE="xtb-bleed-windows/bin/xtb.exe"
-            [ -f "$EXE" ] || { echo "::error::$EXE not found after install"; exit 1; }
+            [ -d "xtb-bleed-windows/bin" ] || mkdir -p "xtb-bleed-windows/bin"
             
-            # Added libgfortran-5.dll and libgcc_s_seh-1.dll to the list
-            for want in libblas.dll liblapack.dll libgfortran-5.dll libgcc_s_seh-1.dll; do
-              if objdump -p "$EXE" \
-                   | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//Ip' \
-                   | tr -d '\r' \
-                   | tr '[:upper:]' '[:lower:]' \
-                   | grep -qxF "$want"
-              then
-                path="$(ntldd "$EXE" | awk -v want="$want" 'BEGIN{IGNORECASE=1} {gsub(/\r$/,""); if ($1==want) {print $3; exit}}')"
-                if [ -n "${path:-}" ] && [ -f "$path" ]; then
-                  echo "Bundling $want from $path"
-                  cp -n "$path" "xtb-bleed-windows/bin/"
-                else
-                  echo "::warning::$want referenced but ntldd could not resolve a path"
-                fi
+            # Define list of required DLLs. 
+            # Includes Transitive deps (gfortran, gcc, quadmath, winpthread) which objdump misses.
+            WANTED_DLLS=("libblas.dll" "liblapack.dll" "libgfortran-5.dll" "libgcc_s_seh-1.dll" "libquadmath-0.dll" "libwinpthread-1.dll")
+            
+            for dll in "${WANTED_DLLS[@]}"; do
+              # Use 'which' to find the DLL in the MSYS2 path
+              dll_path=$(which "$dll" || true)
+              
+              if [ -f "$dll_path" ]; then
+                echo "Bundling $dll from $dll_path"
+                cp "$dll_path" "xtb-bleed-windows/bin/"
               else
-                echo "$want not referenced by xtb.exe; skipping."
+                echo "::warning::$dll not found in PATH. The binary might fail on other machines."
               fi
             done
 
@@ -628,7 +623,7 @@ jobs:
 
            REM --- Bundle Intel Runtime DLLs ---
            REM Setup-fortran puts these in PATH, so we can find them with 'where'
-           for %%d in (libiomp5md.dll libifcoremd.dll libifportMD.dll libmmd.dll svml_dispmd.dll) do (
+           for %%d in (libiomp5md.dll) do (
              where /q %%d
              if not errorlevel 1 (
                for /f "usebackq tokens=*" %%f in (`where %%d`) do (
@@ -639,6 +634,8 @@ jobs:
                echo Warning: %%d not found in PATH.
              )
            )
+
+      # libifcoremd.dll libifportMD.dll libmmd.dll svml_dispmd.dll
 
        - name: Package artifact
          shell: cmd
