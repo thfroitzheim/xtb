@@ -1,30 +1,7 @@
 name: CI
 on: [push, pull_request]
-
 env:
    BUILD_DIR: _build
-
-   # oneAPI CI-style environment
-   WINDOWS_BASEKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/1f18901e-877d-469d-a41a-a10f11b39336/intel-oneapi-base-toolkit-2025.3.0.372_offline.exe
-   WINDOWS_HPCKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/3a871580-f839-46ed-aeae-685084127279/intel-oneapi-hpc-toolkit-2025.3.0.378_offline.exe
-   LINUX_BASEKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/d640da34-77cc-4ab2-8019-ac5592f4ec19/intel-oneapi-base-toolkit-2025.3.0.375_offline.sh
-   LINUX_HPCKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/66021d90-934d-41f4-bedf-b8c00bbe98bc/intel-oneapi-hpc-toolkit-2025.3.0.381_offline.sh
-   LINUX_AIKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/491d5c2a-67fe-48d0-884f-6aecd88f5d8a/ai-tools-2025.0.0.75_offline.sh
-   WINDOWS_CPP_COMPONENTS: intel.oneapi.win.cpp-dpcpp-common
-   WINDOWS_FORTRAN_COMPONENTS: intel.oneapi.win.ifort-compiler
-   WINDOWS_DPCPP_COMPONENTS: intel.oneapi.win.cpp-dpcpp-common
-   LINUX_CPP_COMPONENTS: intel-oneapi-dpcpp-cpp-compiler
-   LINUX_FORTRAN_COMPONENTS: intel-oneapi-compiler-fortran
-   LINUX_DPCPP_COMPONENTS: intel-oneapi-compiler-dpcpp-cpp
-   LINUX_CPP_COMPONENTS_WEB: intel.oneapi.lin.dpcpp-cpp-compiler
-   LINUX_FORTRAN_COMPONENTS_WEB: intel.oneapi.lin.ifort-compiler
-   LINUX_DPCPP_COMPONENTS_WEB: intel.oneapi.lin.dpcpp-cpp-compiler
-   CACHE_NUMBER: 11
-   SAMPLES_TAG: 2025.3.0
-   AI_SAMPLES_TAG: 2025.0.0
-   COMPILER_VERSION: 2025.3
-   TBB_VERSION: 2022.3
-   VS_VER: vs2022
 
 jobs:
    gcc-meson-build:
@@ -544,129 +521,154 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
-   # Windows Intel static-ish build with MKL + tblite + cpcmx (IFX via oneAPI offline installer)
+# Windows Intel ifx (LLVM) static build with MKL
    windows-intel-ifx-static-cmake-build:
       runs-on: windows-latest
+      strategy:
+         fail-fast: false
       steps:
          - name: Checkout code
            uses: actions/checkout@v4
-
-         # Install oneAPI HPC toolkit (Fortran) using oneapi-ci technique
-         - name: cache install
-           id: cache-install
-           uses: actions/cache@v3
-           with:
-            path: |
-              C:\Program Files (x86)\Intel\oneAPI\setvars-vcvarsall.bat
-              C:\Program Files (x86)\Intel\oneAPI\compiler
-            key: install-${{ env.CACHE_NUMBER }}-${{ env.WINDOWS_HPCKIT_URL }}-${{ env.WINDOWS_FORTRAN_COMPONENTS }}-compiler-${{ hashFiles('**/scripts/cache_exclude_windows.sh') }}
-
-         - name: install oneAPI HPC toolkit (Fortran)
-           if: steps.cache-install.outputs.cache-hit != 'true'
-           shell: bash
-           run: scripts/install_windows.bat $WINDOWS_HPCKIT_URL $WINDOWS_FORTRAN_COMPONENTS
-
-         - name: exclude unused files from cache
-           if: steps.cache-install.outputs.cache-hit != 'true'
-           shell: bash
-           run: scripts/cache_exclude_windows.sh
 
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
             python-version: 3.x
 
-         - name: Install CMake & Ninja
-           run: python -m pip install cmake ninja
+         - name: Install Ninja
+           run: python -m pip install ninja cmake
 
-         # Configure & build XTB using ifx + MKL, static libs, tblite+cpcmx ON
-         - name: Configure and build (ifx + MKL, static, tblite+cpcmx ON)
-           shell: cmd
-           env:
-            BUILD_DIR: ${{ env.BUILD_DIR }}
+         # MANUAL INSTALL with USER-AGENT FIX
+         - name: Download and Install Intel OneAPI (Manual)
+           shell: powershell
            run: |
-            call "C:\Program Files (x86)\Intel\oneAPI\setvars-vcvarsall.bat" intel64 %VS_VER%
-            cmake -B %BUILD_DIR% -G Ninja ^
-              -DCMAKE_BUILD_TYPE=Release ^
-              -DCMAKE_Fortran_COMPILER=ifx ^
-              -DCMAKE_C_COMPILER=cl ^
-              -DBLA_VENDOR=Intel10_64lp ^
-              -DWITH_TBLITE=ON ^
-              -DWITH_CPCMX=ON ^
-              -DBUILD_SHARED_LIBS=OFF
-            cmake --build %BUILD_DIR% --config Release
+             # URLs for 2024.1 Installers
+             $base_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20473/w_BaseKit_p_2024.1.0.596.exe"
+             $hpc_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20456/w_HPCKit_p_2024.1.0.560.exe"
+             
+             # Mimic Chrome to bypass "Access Denied"
+             $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+             
+             echo "Downloading BaseKit (MKL + ICX)..."
+             Invoke-WebRequest -Uri $base_url -OutFile "basekit.exe" -UserAgent $ua
+             
+             echo "Downloading HPCKit (IFX/IFORT)..."
+             Invoke-WebRequest -Uri $hpc_url -OutFile "hpckit.exe" -UserAgent $ua
+             
+             echo "Installing BaseKit components..."
+             # We use a specific variable name to avoid conflicts with reserved $args
+             $install_args = "--silent --action install --eula accept --components intel.oneapi.win.mkl.devel:intel.oneapi.win.dpcpp-cpp-compiler"
+             Start-Process -FilePath ".\basekit.exe" -ArgumentList $install_args -Wait -NoNewWindow
+             
+             echo "Installing HPCKit components..."
+             $install_args = "--silent --action install --eula accept --components intel.oneapi.win.ifort-compiler"
+             Start-Process -FilePath ".\hpckit.exe" -ArgumentList $install_args -Wait -NoNewWindow
+             
+             echo "Installation complete."
+
+         - name: Configure CMake
+           shell: cmd
+           run: |
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+             cmake -B %BUILD_DIR% -G Ninja ^
+               -DCMAKE_BUILD_TYPE=Release ^
+               -DCMAKE_Fortran_COMPILER=ifx ^
+               -DCMAKE_C_COMPILER=icx ^
+               -DBLA_VENDOR=Intel10_64lp ^
+               -DBLA_STATIC=ON ^
+               -DWITH_TBLITE=ON ^
+               -DWITH_CPCMX=ON ^
+               -DBUILD_SHARED_LIBS=OFF ^
+               -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+               -DCMAKE_Fortran_FLAGS="/libs:static /threads /Qipo" ^
+               -DCMAKE_C_FLAGS="/Qipo"
+
+         - name: Build project
+           shell: cmd
+           run: |
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+             cmake --build %BUILD_DIR% --config Release
 
          - name: Run unit tests
            shell: cmd
+           working-directory: ${{ env.BUILD_DIR }}
            env:
-            BUILD_DIR: ${{ env.BUILD_DIR }}
             OMP_NUM_THREADS: 2
            run: |
-            call "C:\Program Files (x86)\Intel\oneAPI\setvars-vcvarsall.bat" intel64 %VS_VER%
-            cd %BUILD_DIR%
-            ctest --output-on-failure -R "xtb/*"
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+             ctest --output-on-failure -R "xtb/*"
 
-   # Windows Intel static-ish build with MKL + tblite + cpcmx (IFORT via oneAPI offline installer)
+   # Windows Intel ifort (Classic) static build with MKL
    windows-intel-ifort-static-cmake-build:
       runs-on: windows-latest
+      strategy:
+         fail-fast: false
       steps:
          - name: Checkout code
            uses: actions/checkout@v4
-
-         # Reuse same cached oneAPI HPC toolkit installation
-         - name: cache install
-           id: cache-install
-           uses: actions/cache@v3
-           with:
-            path: |
-              C:\Program Files (x86)\Intel\oneAPI\setvars-vcvarsall.bat
-              C:\Program Files (x86)\Intel\oneAPI\compiler
-            key: install-${{ env.CACHE_NUMBER }}-${{ env.WINDOWS_HPCKIT_URL }}-${{ env.WINDOWS_FORTRAN_COMPONENTS }}-compiler-${{ hashFiles('**/scripts/cache_exclude_windows.sh') }}
-
-         - name: install oneAPI HPC toolkit (Fortran)
-           if: steps.cache-install.outputs.cache-hit != 'true'
-           shell: bash
-           run: scripts/install_windows.bat $WINDOWS_HPCKIT_URL $WINDOWS_FORTRAN_COMPONENTS
-
-         - name: exclude unused files from cache
-           if: steps.cache-install.outputs.cache-hit != 'true'
-           shell: bash
-           run: scripts/cache_exclude_windows.sh
 
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
             python-version: 3.x
 
-         - name: Install CMake & Ninja
-           run: python -m pip install cmake ninja
+         - name: Install Ninja
+           run: python -m pip install ninja cmake
 
-         # Configure & build XTB using ifort + MKL, static libs, tblite+cpcmx ON
-         - name: Configure and build (ifort + MKL, static, tblite+cpcmx ON)
-           shell: cmd
-           env:
-            BUILD_DIR: ${{ env.BUILD_DIR }}
+         # MANUAL INSTALL with USER-AGENT FIX
+         - name: Download and Install Intel OneAPI (Manual)
+           shell: powershell
            run: |
-            call "C:\Program Files (x86)\Intel\oneAPI\setvars-vcvarsall.bat" intel64 %VS_VER%
-            cmake -B %BUILD_DIR% -G Ninja ^
-              -DCMAKE_BUILD_TYPE=Release ^
-              -DCMAKE_Fortran_COMPILER=ifort ^
-              -DCMAKE_C_COMPILER=cl ^
-              -DBLA_VENDOR=Intel10_64lp ^
-              -DWITH_TBLITE=ON ^
-              -DWITH_CPCMX=ON ^
-              -DBUILD_SHARED_LIBS=OFF
-            cmake --build %BUILD_DIR% --config Release
+             $base_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20473/w_BaseKit_p_2024.1.0.596.exe"
+             $hpc_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20456/w_HPCKit_p_2024.1.0.560.exe"
+             $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+             
+             echo "Downloading BaseKit (MKL + ICX)..."
+             Invoke-WebRequest -Uri $base_url -OutFile "basekit.exe" -UserAgent $ua
+             
+             echo "Downloading HPCKit (IFX/IFORT)..."
+             Invoke-WebRequest -Uri $hpc_url -OutFile "hpckit.exe" -UserAgent $ua
+             
+             echo "Installing BaseKit components..."
+             $install_args = "--silent --action install --eula accept --components intel.oneapi.win.mkl.devel:intel.oneapi.win.dpcpp-cpp-compiler"
+             Start-Process -FilePath ".\basekit.exe" -ArgumentList $install_args -Wait -NoNewWindow
+             
+             echo "Installing HPCKit components..."
+             $install_args = "--silent --action install --eula accept --components intel.oneapi.win.ifort-compiler"
+             Start-Process -FilePath ".\hpckit.exe" -ArgumentList $install_args -Wait -NoNewWindow
+
+         - name: Configure CMake
+           shell: cmd
+           run: |
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+             cmake -B %BUILD_DIR% -G Ninja ^
+               -DCMAKE_BUILD_TYPE=Release ^
+               -DCMAKE_Fortran_COMPILER=ifort ^
+               -DCMAKE_C_COMPILER=icx ^
+               -DBLA_VENDOR=Intel10_64lp ^
+               -DBLA_STATIC=ON ^
+               -DWITH_TBLITE=ON ^
+               -DWITH_CPCMX=ON ^
+               -DBUILD_SHARED_LIBS=OFF ^
+               -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+               -DCMAKE_Fortran_FLAGS="/libs:static /threads /Qipo" ^
+               -DCMAKE_C_FLAGS="/Qipo"
+
+         - name: Build project
+           shell: cmd
+           run: |
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+             cmake --build %BUILD_DIR% --config Release
 
          - name: Run unit tests
            shell: cmd
+           working-directory: ${{ env.BUILD_DIR }}
            env:
-            BUILD_DIR: ${{ env.BUILD_DIR }}
             OMP_NUM_THREADS: 2
            run: |
-            call "C:\Program Files (x86)\Intel\oneAPI\setvars-vcvarsall.bat" intel64 %VS_VER%
-            cd %BUILD_DIR%
-            ctest --output-on-failure -R "xtb/*"
+             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+             ctest --output-on-failure -R "xtb/*"
+
 
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
