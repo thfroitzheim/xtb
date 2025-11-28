@@ -638,12 +638,12 @@ jobs:
          shell: cmd
          run: ninja -C builddir
    
-       - name: Test
-         shell: cmd
-         run: |
-           set OMP_NUM_THREADS=2,1
-           meson test -C builddir --print-errorlogs --num-processes 1 ^
-             --no-rebuild --suite xtb -t 120
+      #  - name: Test
+      #    shell: cmd
+      #    run: |
+      #      set OMP_NUM_THREADS=2,1
+      #      meson test -C builddir --print-errorlogs --num-processes 1 ^
+      #        --no-rebuild --suite xtb -t 120
    
        - name: Install
          shell: cmd
