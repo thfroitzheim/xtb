@@ -521,7 +521,7 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
-   intel-ifx-meson-build-windows:
+   windows-intel-ifx-meson-static:
      runs-on: windows-latest
      strategy:
        fail-fast: false
@@ -659,13 +659,13 @@ jobs:
          shell: cmd
          run: |
            cd install
-           powershell -Command "Compress-Archive * ../xtb-windows-ifx-openblas-nodll.zip"
+           powershell -Command "Compress-Archive * ../xtb-bleed-windows-ifx-openblas.zip"
 
        - name: Upload artifact
          uses: actions/upload-artifact@v4
          with:
-           name: xtb-windows-ifx-openblas-nodll
-           path: xtb-windows-ifx-openblas-nodll.zip
+           name: xtb-bleed-windows-ifx-openblas
+           path: xtb-bleed-windows-ifx-openblas.zip
 
 
    # intel-ifx-meson-build-windows-nonstatic:
@@ -812,12 +812,14 @@ jobs:
       needs:
          - intel-meson-build
          - mingw-meson-static-build
+         - windows-intel-ifx-meson-static
          - windows-zip-smoke-test
       env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          RELEASE_TAG: bleed
          OUTPUT_INTEL: xtb-bleed.tar.xz
          OUTPUT_WINDOWS: xtb-bleed-windows.zip
+         OUTPUT_WINDOWS_IFX: xtb-bleed-windows-ifx-openblas.zip
       steps:
          - uses: actions/checkout@v4
 
@@ -867,6 +869,7 @@ jobs:
            run: |
             sha256sum "${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}" > "${{ env.OUTPUT_INTEL }}.sha256"
             sha256sum "${{ env.OUTPUT_WINDOWS }}/${{ env.OUTPUT_WINDOWS }}" > "${{ env.OUTPUT_WINDOWS }}.sha256"
+            sha256sum "${{ env.OUTPUT_WINDOWS_IFX }}/${{ env.OUTPUT_WINDOWS_IFX }}" > "${{ env.OUTPUT_WINDOWS_IFX }}.sha256"
 
          - name: Add Linux Intel to release tag
            run: >
@@ -887,3 +890,13 @@ jobs:
            run: >
             github-release upload --tag ${{ env.RELEASE_TAG }} --replace
             --name "${{ env.OUTPUT_WINDOWS }}.sha256" --file ${{ env.OUTPUT_WINDOWS }}.sha256
+
+         - name: Add Windows Intel to release tag
+           run: >
+            github-release upload --tag ${{ env.RELEASE_TAG }} --replace
+            --name ${{ env.OUTPUT_WINDOWS_IFX }} --file ${{ env.OUTPUT_WINDOWS_IFX }}/${{ env.OUTPUT_WINDOWS_IFX }}
+
+         - name: Add Windows Intel SHA256 checksums to release tag
+           run: >
+            github-release upload --tag ${{ env.RELEASE_TAG }} --replace
+            --name "${{ env.OUTPUT_WINDOWS_IFX }}.sha256" --file ${{ env.OUTPUT_WINDOWS_IFX }}.sha256
