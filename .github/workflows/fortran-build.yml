@@ -578,7 +578,7 @@ jobs:
             
             echo PKG_CONFIG_PATH is: %PKG_CONFIG_PATH%
 
-         - name: Build and Test
+         - name: Setup
            shell: cmd
            run: |
             REM --- Build & Test ---
@@ -587,9 +587,15 @@ jobs:
             -Ddefault_library=static ^
             -Dlapack=openblas ^
             -Dtblite=disabled
-            
+
+         - name: Build
+           shell: cmd
+           run: |
             ninja -C builddir
-            
+
+         - name: Test
+           shell: cmd
+           run: |
             set OMP_NUM_THREADS=2,1
             meson test -C builddir --print-errorlogs --num-processes 1 ^
             --no-rebuild --suite xtb -t 120
