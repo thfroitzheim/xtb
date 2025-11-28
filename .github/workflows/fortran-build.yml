@@ -606,7 +606,8 @@ jobs:
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
              --native-file native.ini ^
-             -Dlapack=openblas
+             -Dlapack=openblas ^
+             -Dcpcmx=disabled
 
        # NEW STEP: Brute-force removal of DLL attributes
        - name: Patch Source Code (Remove DLL Attributes)
@@ -636,6 +637,33 @@ jobs:
            set OMP_NUM_THREADS=2,1
            meson test -C builddir --print-errorlogs --num-processes 1 ^
              --no-rebuild --suite xtb -t 120
+
+       - name: Install
+         shell: cmd
+         run: |
+           ninja -C builddir install
+   
+       # Optional but nice: bundle the OpenBLAS DLL into bin so the exe is self-contained
+       - name: Bundle OpenBLAS DLL
+         shell: cmd
+         run: |
+           set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
+           if exist "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" (
+             copy "%BLAS_ENV_ROOT%\Library\bin\openblas*.dll" "install\bin\"
+           )
+   
+       - name: Package artifact
+         shell: cmd
+         run: |
+           cd install
+           powershell -Command "Compress-Archive * ../xtb-windows-ifx-openblas-nodll.zip"
+   
+       - name: Upload artifact
+         uses: actions/upload-artifact@v4
+         with:
+           name: xtb-windows-ifx-openblas-nodll
+           path: xtb-windows-ifx-openblas-nodll.zip
+
 
    intel-ifx-meson-build-windows-nonstatic:
      runs-on: windows-latest
