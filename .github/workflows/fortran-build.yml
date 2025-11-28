@@ -543,14 +543,37 @@ jobs:
             compiler: ${{ matrix.toolchain.compiler }}
             version: ${{ matrix.toolchain.version }}
 
-         # Manually install MKL 2023.2 using the official offline installer.
-         # The choco package does not exist on the community feed.
+         # Manually install MKL 2024.0 using the official offline installer.
+         # 2023.2 link appeared broken (111 bytes), 2024.0 is reliable and compatible.
          - name: Install MKL
-           shell: cmd
+           shell: powershell
            run: |
-            curl -L -o mkl_installer.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/9928ee3b-cb93-4732-b05b-240212f46219/w_onemkl_p_2023.2.0.49496_offline.exe
-            mkl_installer.exe -s -x -f mkl_extracted
-            mkl_extracted\bootstrapper.exe -s --action install --components=intel.oneapi.win.mkl.devel --eula=accept -p=NEED_VS2022_INTEGRATION=0 --log-dir=.
+            $Url = "https://registrationcenter-download.intel.com/akdlm/IRC_NAS/67639f70-555e-4509-9bfa-d984c478d128/w_onemkl_p_2024.0.0.49657_offline.exe"
+            $Output = "mkl_installer.exe"
+            
+            Write-Host "Downloading MKL from $Url..."
+            Invoke-WebRequest -Uri $Url -OutFile $Output
+            
+            $Size = (Get-Item $Output).Length
+            Write-Host "Downloaded file size: $Size bytes"
+            
+            if ($Size -lt 10000000) {
+              Write-Error "Download failed or file is too small. Check the URL."
+              exit 1
+            }
+            
+            Write-Host "Extracting installer..."
+            Start-Process -FilePath .\$Output -ArgumentList "-s", "-x", "-f", "mkl_extracted" -Wait -NoNewWindow
+            
+            Write-Host "Installing MKL..."
+            $Installer = "mkl_extracted\bootstrapper.exe"
+            $Args = @("-s", "--action", "install", "--components=intel.oneapi.win.mkl.devel", "--eula=accept", "-p=NEED_VS2022_INTEGRATION=0", "--log-dir=.")
+            $Process = Start-Process -FilePath $Installer -ArgumentList $Args -Wait -PassThru -NoNewWindow
+            
+            if ($Process.ExitCode -ne 0) {
+              Write-Error "MKL Installation failed with exit code $($Process.ExitCode)"
+              exit $Process.ExitCode
+            }
 
          - name: Setup Python
            uses: actions/setup-python@v5
