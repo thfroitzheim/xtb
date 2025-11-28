@@ -530,15 +530,6 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
-         # The correct action is intel/setup-intel-oneapi
-         - name: Setup Intel oneAPI
-           uses: intel/setup-intel-oneapi@v3
-           with:
-            components: |
-               icx
-               ifx
-               mkl
-
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
@@ -547,10 +538,34 @@ jobs:
          - name: Install Ninja
            run: python -m pip install ninja cmake
 
-         # We use 'shell: cmd' to explicitly call setvars.bat if the action env vars drift, 
-         # but usually the action handles it.
-         # Critical: /libs:static /threads forces static intel runtime.
-         # Critical: CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded forces static C runtime.
+         # MANUAL INSTALL STEP
+         # 1. BaseKit contains MKL and ICX (C compiler)
+         # 2. HPCKit contains IFX/IFORT (Fortran compiler)
+         - name: Download and Install Intel OneAPI (Manual)
+           shell: powershell
+           run: |
+             $base_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20473/w_BaseKit_p_2024.1.0.596.exe"
+             $hpc_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20456/w_HPCKit_p_2024.1.0.560.exe"
+             
+             echo "Downloading BaseKit (MKL + ICX)..."
+             Invoke-WebRequest -Uri $base_url -OutFile "basekit.exe"
+             
+             echo "Downloading HPCKit (IFX/IFORT)..."
+             Invoke-WebRequest -Uri $hpc_url -OutFile "hpckit.exe"
+             
+             echo "Installing BaseKit components..."
+             # Components: MKL Devel, DPC++/C++ Compiler (for icx/link)
+             $args = "--silent --action install --eula accept --components intel.oneapi.win.mkl.devel:intel.oneapi.win.dpcpp-cpp-compiler"
+             Start-Process -FilePath ".\basekit.exe" -ArgumentList $args -Wait -NoNewWindow
+             
+             echo "Installing HPCKit components..."
+             # Components: Fortran Compiler
+             $args = "--silent --action install --eula accept --components intel.oneapi.win.ifort-compiler"
+             Start-Process -FilePath ".\hpckit.exe" -ArgumentList $args -Wait -NoNewWindow
+             
+             echo "Installation complete."
+
+         # CRITICAL: Use cmd shell to load setvars.bat correctly
          - name: Configure CMake
            shell: cmd
            run: |
@@ -584,8 +599,6 @@ jobs:
              ctest --output-on-failure -R "xtb/*"
 
    # Windows Intel ifort (Classic) static build with MKL
-   # Note: 'ifort' is deprecated and may be removed in future OneAPI versions (2025+).
-   # We install the 'classic' component if available, or rely on it being present in 'fortran' component for now.
    windows-intel-ifort-static-cmake-build:
       runs-on: windows-latest
       strategy:
@@ -594,14 +607,6 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
-         - name: Setup Intel oneAPI
-           uses: intel/setup-intel-oneapi@v3
-           with:
-            components: |
-               icx
-               ifort
-               mkl
-
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
@@ -609,6 +614,27 @@ jobs:
 
          - name: Install Ninja
            run: python -m pip install ninja cmake
+
+         # MANUAL INSTALL STEP (Same as above)
+         - name: Download and Install Intel OneAPI (Manual)
+           shell: powershell
+           run: |
+             $base_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20473/w_BaseKit_p_2024.1.0.596.exe"
+             $hpc_url = "https://registrationcenter-download.intel.com/akdlm/irc_nas/20456/w_HPCKit_p_2024.1.0.560.exe"
+             
+             echo "Downloading BaseKit (MKL + ICX)..."
+             Invoke-WebRequest -Uri $base_url -OutFile "basekit.exe"
+             
+             echo "Downloading HPCKit (IFX/IFORT)..."
+             Invoke-WebRequest -Uri $hpc_url -OutFile "hpckit.exe"
+             
+             echo "Installing BaseKit components..."
+             $args = "--silent --action install --eula accept --components intel.oneapi.win.mkl.devel:intel.oneapi.win.dpcpp-cpp-compiler"
+             Start-Process -FilePath ".\basekit.exe" -ArgumentList $args -Wait -NoNewWindow
+             
+             echo "Installing HPCKit components..."
+             $args = "--silent --action install --eula accept --components intel.oneapi.win.ifort-compiler"
+             Start-Process -FilePath ".\hpckit.exe" -ArgumentList $args -Wait -NoNewWindow
 
          - name: Configure CMake
            shell: cmd
