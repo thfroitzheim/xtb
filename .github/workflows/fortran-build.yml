@@ -664,7 +664,7 @@ jobs:
        - name: Upload artifact
          uses: actions/upload-artifact@v4
          with:
-           name: xtb-bleed-windows-ifx-openblas
+           name: xtb-bleed-windows-ifx-openblas.zip
            path: xtb-bleed-windows-ifx-openblas.zip
 
 
