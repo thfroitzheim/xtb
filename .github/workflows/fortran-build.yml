@@ -532,8 +532,7 @@ jobs:
          - name: Checkout code
            uses: actions/checkout@v4
 
-         # Pin Python to a stable version (3.12). 
-         # 3.x was pulling 3.14 (alpha), causing internal Meson errors.
+         # Pin Python to 3.12 to avoid Meson/3.14 incompatibilities
          - name: Setup Python
            uses: actions/setup-python@v5
            with:
@@ -545,8 +544,6 @@ jobs:
             compiler: ${{ matrix.toolchain.compiler }}
             version: ${{ matrix.toolchain.version }}
 
-         # Install OpenBLAS via Micromamba (conda-forge).
-         # This successfully installed in the previous run.
          - name: Install OpenBLAS via Micromamba
            uses: mamba-org/setup-micromamba@v2
            with:
@@ -560,28 +557,35 @@ jobs:
                pkg-config
              generate-run-shell: false
 
-         - run: pip install meson==1.7.0 ninja
+         - run: pip install meson==1.6.1 ninja
 
-         - name: Configure paths
+         # KEY STEP: Configure and PERSIST environment variables
+         - name: Configure Environment
            shell: cmd
            run: |
             call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
             
-            REM --- Configure OpenBLAS from Micromamba ---
+            REM --- Calculate OpenBLAS Paths ---
             set "BLAS_ENV_PATH=%MAMBA_ROOT_PREFIX%\envs\blas-env\Library"
             
-            REM Add pkg-config path so Meson can find openblas.pc
-            set "PKG_CONFIG_PATH=%BLAS_ENV_PATH%\lib\pkgconfig;%PKG_CONFIG_PATH%"
+            REM --- Persist Variables to GITHUB_ENV ---
+            REM These are lost between steps unless explicitly saved to this file.
+            echo LIB=%LIB%>> %GITHUB_ENV%
+            echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
+            echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
+            echo IFORT_COMPILER=%IFORT_COMPILER%>> %GITHUB_ENV%
             
-            REM Add bin to PATH so openblas.dll is found during tests and pkg-config.exe is found during setup
-            set "PATH=%BLAS_ENV_PATH%\bin;%PATH%"
+            REM Set PKG_CONFIG_PATH so Meson finds OpenBLAS
+            echo PKG_CONFIG_PATH=%BLAS_ENV_PATH%\lib\pkgconfig>> %GITHUB_ENV%
             
-            echo PKG_CONFIG_PATH is: %PKG_CONFIG_PATH%
+            REM --- Persist PATH to GITHUB_PATH ---
+            REM We add the Intel paths (from setvars) and OpenBLAS bin (for tests)
+            echo %BLAS_ENV_PATH%\bin>> %GITHUB_PATH%
+            echo %PATH%>> %GITHUB_PATH%
 
-         - name: Setup
+         - name: Meson Setup
            shell: cmd
            run: |
-            REM --- Build & Test ---
             meson setup builddir --prefix=%CD%/install --libdir=lib ^
             -Dfortran_link_args="/libs:static" ^
             -Ddefault_library=static ^
@@ -590,8 +594,7 @@ jobs:
 
          - name: Build
            shell: cmd
-           run: |
-            ninja -C builddir
+           run: ninja -C builddir
 
          - name: Test
            shell: cmd
@@ -599,6 +602,7 @@ jobs:
             set OMP_NUM_THREADS=2,1
             meson test -C builddir --print-errorlogs --num-processes 1 ^
             --no-rebuild --suite xtb -t 120
+
 
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
