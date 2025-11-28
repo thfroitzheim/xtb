@@ -555,9 +555,9 @@ jobs:
              create-args: >-
                openblas
                pkg-config
+               meson=1.7.0
+               ninja
              generate-run-shell: false
-
-         - run: pip install meson==1.6.1 ninja
 
          # KEY STEP: Configure and PERSIST environment variables
          - name: Configure Environment
@@ -589,7 +589,7 @@ jobs:
             meson setup builddir --prefix=%CD%/install --libdir=lib ^
             -Dfortran_link_args="/libs:static" ^
             -Ddefault_library=static ^
-            -Dlapack=openblas ^
+            -Dlapack=netlib ^
             -Dtblite=disabled
 
          - name: Build
