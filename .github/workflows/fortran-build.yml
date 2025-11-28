@@ -599,7 +599,7 @@ jobs:
            echo c = 'icx'
            echo [built-in options]
            echo fortran_args = ['/fpp', '/names:lowercase', '/assume:underscore', '/D__GNUC__', '/libs:static', '/threads']
-           echo fortran_link_args = ['/Qopenmp', '/ALTERNATENAME:omp_get_num_threads_=omp_get_num_threads', '/ALTERNATENAME:omp_set_num_threads_=omp_set_num_threads', '-lifcoremt', '-static']
+           echo fortran_link_args = ['/Qopenmp', '/ALTERNATENAME:omp_get_num_threads_=omp_get_num_threads', '/ALTERNATENAME:omp_set_num_threads_=omp_set_num_threads', '/lifcoremt', '/static']
            echo default_library = 'static'
            ) > native.ini
            type native.ini
