@@ -543,9 +543,14 @@ jobs:
             compiler: ${{ matrix.toolchain.compiler }}
             version: ${{ matrix.toolchain.version }}
 
-         # Manually install MKL since it is not included in the HPC Kit.
+         # Manually install MKL 2023.2 using the official offline installer.
+         # The choco package does not exist on the community feed.
          - name: Install MKL
-           run: choco install intel-oneapi-mkl --no-progress
+           shell: cmd
+           run: |
+            curl -L -o mkl_installer.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/9928ee3b-cb93-4732-b05b-240212f46219/w_onemkl_p_2023.2.0.49496_offline.exe
+            mkl_installer.exe -s -x -f mkl_extracted
+            mkl_extracted\bootstrapper.exe -s --action install --components=intel.oneapi.win.mkl.devel --eula=accept -p=NEED_VS2022_INTEGRATION=0 --log-dir=.
 
          - name: Setup Python
            uses: actions/setup-python@v5
@@ -556,7 +561,7 @@ jobs:
 
          # On Windows, we combine configuration, build, and test into one block.
          # We call setvars.bat manually to pick up both the Compiler (from setup-fortran)
-         # and MKL (from choco) which both install to C:\Program Files (x86)\Intel\oneAPI.
+         # and MKL (manual install) which both install to C:\Program Files (x86)\Intel\oneAPI.
          - name: Build and Test
            shell: cmd
            run: |
@@ -573,7 +578,6 @@ jobs:
             set OMP_NUM_THREADS=2,1
             meson test -C builddir --print-errorlogs --num-processes 1 ^
             --no-rebuild --suite xtb -t 120
-
 
    # smoke test the Windows GNU zip on a fresh windows-latest runner
    windows-zip-smoke-test:
