@@ -528,15 +528,15 @@ jobs:
          fail-fast: false
          matrix:
             toolchain:
-              # Downgraded to 2023.2 because 2024.1 HPC Kit requires Base Kit on Windows,
-              # causing "Missing Software" errors in the standalone installer.
+              # We use 2023.2 for the compiler because the 2024.x standalone HPC installer
+              # strictly requires the Base Kit to be present, causing failures.
+              # 2023.2 installs correctly as a standalone component.
               - {compiler: intel, version: '2023.2'}
       steps:
          - name: Checkout code
            uses: actions/checkout@v4
 
-         # Installs ifx/ifort (HPC Kit). 
-         # 2023.2 allows standalone installation without Base Kit.
+         # Installs ifx/ifort (HPC Kit)
          - name: Setup Fortran
            uses: fortran-lang/setup-fortran@v1
            with:
@@ -544,36 +544,19 @@ jobs:
             version: ${{ matrix.toolchain.version }}
 
          # Manually install MKL 2024.0 using the official offline installer.
-         # 2023.2 link appeared broken (111 bytes), 2024.0 is reliable and compatible.
+         # We use curl with a User-Agent to avoid 403 Forbidden errors.
          - name: Install MKL
-           shell: powershell
+           shell: cmd
            run: |
-            $Url = "https://registrationcenter-download.intel.com/akdlm/IRC_NAS/67639f70-555e-4509-9bfa-d984c478d128/w_onemkl_p_2024.0.0.49657_offline.exe"
-            $Output = "mkl_installer.exe"
+            curl -L --retry 5 --retry-delay 5 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o mkl_installer.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/67639f70-555e-4509-9bfa-d984c478d128/w_onemkl_p_2024.0.0.49657_offline.exe
             
-            Write-Host "Downloading MKL from $Url..."
-            Invoke-WebRequest -Uri $Url -OutFile $Output
+            start /b /wait mkl_installer.exe -s -x -f mkl_extracted --log extract.log
             
-            $Size = (Get-Item $Output).Length
-            Write-Host "Downloaded file size: $Size bytes"
+            mkl_extracted\bootstrapper.exe -s --action install --components=intel.oneapi.win.mkl.devel --eula=accept -p=NEED_VS2022_INTEGRATION=0 --log-dir=.
             
-            if ($Size -lt 10000000) {
-              Write-Error "Download failed or file is too small. Check the URL."
-              exit 1
-            }
-            
-            Write-Host "Extracting installer..."
-            Start-Process -FilePath .\$Output -ArgumentList "-s", "-x", "-f", "mkl_extracted" -Wait -NoNewWindow
-            
-            Write-Host "Installing MKL..."
-            $Installer = "mkl_extracted\bootstrapper.exe"
-            $Args = @("-s", "--action", "install", "--components=intel.oneapi.win.mkl.devel", "--eula=accept", "-p=NEED_VS2022_INTEGRATION=0", "--log-dir=.")
-            $Process = Start-Process -FilePath $Installer -ArgumentList $Args -Wait -PassThru -NoNewWindow
-            
-            if ($Process.ExitCode -ne 0) {
-              Write-Error "MKL Installation failed with exit code $($Process.ExitCode)"
-              exit $Process.ExitCode
-            }
+            set installer_exit_code=%ERRORLEVEL%
+            echo Installer exit code: %installer_exit_code%
+            if %installer_exit_code% neq 0 exit /b %installer_exit_code%
 
          - name: Setup Python
            uses: actions/setup-python@v5
@@ -582,9 +565,7 @@ jobs:
 
          - run: pip install meson==1.7.0 ninja
 
-         # On Windows, we combine configuration, build, and test into one block.
-         # We call setvars.bat manually to pick up both the Compiler (from setup-fortran)
-         # and MKL (manual install) which both install to C:\Program Files (x86)\Intel\oneAPI.
+         # Combine setup and build to ensure environment variables persist
          - name: Build and Test
            shell: cmd
            run: |
