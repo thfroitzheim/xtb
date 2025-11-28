@@ -528,23 +528,23 @@ jobs:
        matrix:
          toolchain:
            - { compiler: intel, version: '2024.1' }
-
+   
      steps:
        - name: Checkout code
          uses: actions/checkout@v4
-
+   
        # Pin Python to 3.12 to avoid Meson/3.14 incompatibilities
        - name: Setup Python
          uses: actions/setup-python@v5
          with:
            python-version: '3.12'
-
+   
        - name: Setup Fortran
          uses: fortran-lang/setup-fortran@v1
          with:
            compiler: ${{ matrix.toolchain.compiler }}
            version: ${{ matrix.toolchain.version }}
-
+   
        - name: Install OpenBLAS via Micromamba
          uses: mamba-org/setup-micromamba@v2
          with:
@@ -559,38 +559,39 @@ jobs:
              meson
              ninja
            generate-run-shell: false
-
+   
        # KEY STEP: Configure Environment, Fix PC files, and Generate Native File
        - name: Configure Environment
          shell: cmd
          run: |
            call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
-
+   
            REM --- Micromamba env root ---
            set "BLAS_ENV_ROOT=%MAMBA_ROOT_PREFIX%\envs\blas-env"
            set "BLAS_ENV_LIB=%BLAS_ENV_ROOT%\Library"
            set "PKG_CONFIG_DIR=%BLAS_ENV_LIB%\lib\pkgconfig"
-
+   
            REM --- FIX: Copy openblas.pc to lapack.pc so Meson finds it ---
            echo Copying openblas.pc to lapack.pc...
            copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\lapack.pc"
            copy "%PKG_CONFIG_DIR%\openblas.pc" "%PKG_CONFIG_DIR%\blas.pc"
-
+   
            REM --- Persist Intel vars to GITHUB_ENV ---
            echo LIB=%LIB%>> %GITHUB_ENV%
            echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
            echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
            echo IFORT_COMPILER=%IFORT_COMPILER%>> %GITHUB_ENV%
-
+   
            REM --- PKG_CONFIG_PATH for OpenBLAS .pc ---
            echo PKG_CONFIG_PATH=%PKG_CONFIG_DIR%>> %GITHUB_ENV%
-
+   
            REM --- Make meson & ninja visible (Scripts) + DLLs (Library\bin) ---
            echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
-
+   
            REM --- GENERATE NATIVE FILE ---
-           REM We keep /D__GNUC__ to fix symbol naming (SSYTRF vs ssytrf_)
-           REM but rely on the Patch Step below to handle the DLL attributes.
+           REM 1. /names:lowercase /assume:underscore: Match OpenBLAS naming convention.
+           REM 2. /D__GNUC__: Triggers correct code paths in libraries.
+           REM 3. /Qopenmp: REQUIRED during linking to pull in OpenMP libraries.
            (
            echo [binaries]
            echo fortran = 'ifx'
@@ -600,16 +601,17 @@ jobs:
            echo default_library = 'static'
            ) > native.ini
            type native.ini
-
+   
        - name: Meson Setup
          shell: cmd
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
-             --native-file native.ini ^
+             --native-file native.ini --optimization 2 --buildtype release ^
              -Dlapack=openblas ^
-             -Dcpcmx=disabled
-
-       # NEW STEP: Brute-force removal of DLL attributes
+             -Dcpcmx=disabled ^
+             -Dfortran_link_args="-qopenmp" 
+   
+       # PATCH STEP: Brute-force removal of DLL attributes
        - name: Patch Source Code (Remove DLL Attributes)
          shell: powershell
          run: |
@@ -626,24 +628,24 @@ jobs:
                    Set-Content -Path $file -Value $newContent
                }
            }
-
+   
        - name: Build
          shell: cmd
          run: ninja -C builddir
-
+   
        - name: Test
          shell: cmd
          run: |
            set OMP_NUM_THREADS=2,1
            meson test -C builddir --print-errorlogs --num-processes 1 ^
              --no-rebuild --suite xtb -t 120
-
+   
        - name: Install
          shell: cmd
          run: |
            ninja -C builddir install
    
-       # Optional but nice: bundle the OpenBLAS DLL into bin so the exe is self-contained
+       # Optional: Bundle OpenBLAS DLL
        - name: Bundle OpenBLAS DLL
          shell: cmd
          run: |
@@ -737,7 +739,7 @@ jobs:
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
              -Dfortran_args="/fpp /names:lowercase /assume:underscore" ^
-             -Dlapack=openblas
+             -Dlapack=openblas 
    
        - name: Build
          shell: cmd
