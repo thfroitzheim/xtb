@@ -521,7 +521,7 @@ jobs:
             name: xtb-bleed-windows.zip
             path: xtb-bleed-windows.zip
 
-   windows-intel-ifx-meson-static:
+   intel-ifx-meson-build-windows:
      runs-on: windows-latest
      strategy:
        fail-fast: false
@@ -589,17 +589,19 @@ jobs:
            echo PATH=%BLAS_ENV_ROOT%\Scripts;%BLAS_ENV_LIB%\bin;%PATH%>> %GITHUB_ENV%
    
            REM --- GENERATE NATIVE FILE ---
-           REM 1. /names:lowercase /assume:underscore: Match OpenBLAS naming convention.
-           REM 2. /D__GNUC__: Triggers correct code paths in libraries.
-           REM 3. /libs:static /threads: Force COMPILER to request static Intel Runtime libs (libifcoremt.lib etc).
-           REM 4. /Qopenmp-link:static: Force LINKER to use static OpenMP library.
-           REM 5. /ALTERNATENAME: Fixes mismatch between 'omp_..._' and 'omp_...'.
-           REM 6. /FORCE:MULTIPLE: Fixes LNK2005 error (frexp defined in both libmmt and libucrt).
+           REM 1. /MT: Forces C compiler (icx) to use static CRT.
+           REM 2. /names:lowercase /assume:underscore: Match OpenBLAS naming convention.
+           REM 3. /D__GNUC__: Triggers correct code paths in libraries.
+           REM 4. /libs:static /threads: Force Fortran COMPILER to request static Intel Runtime libs.
+           REM 5. /Qopenmp-link:static: Force LINKER to use static OpenMP library.
+           REM 6. /ALTERNATENAME: Fixes mismatch between 'omp_..._' and 'omp_...'.
+           REM 7. /FORCE:MULTIPLE: Fixes LNK2005 error (frexp defined in both libmmt and libucrt).
            (
            echo [binaries]
            echo fortran = 'ifx'
            echo c = 'icx'
            echo [built-in options]
+           echo c_args = ['/MT']
            echo fortran_args = ['/fpp', '/names:lowercase', '/assume:underscore', '/D__GNUC__', '/libs:static', '/threads']
            echo fortran_link_args = ['/Qopenmp', '/Qopenmp-link:static', '/ALTERNATENAME:omp_get_num_threads_=omp_get_num_threads', '/ALTERNATENAME:omp_set_num_threads_=omp_set_num_threads', '/FORCE:MULTIPLE']
            echo default_library = 'static'
