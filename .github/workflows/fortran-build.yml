@@ -528,10 +528,24 @@ jobs:
          fail-fast: false
          matrix:
             toolchain:
-              - {compiler: intel, version: '2024.1'}
+              # Downgraded to 2023.2 because 2024.1 HPC Kit requires Base Kit on Windows,
+              # causing "Missing Software" errors in the standalone installer.
+              - {compiler: intel, version: '2023.2'}
       steps:
-         - name: Checkout codea
+         - name: Checkout code
            uses: actions/checkout@v4
+
+         # Installs ifx/ifort (HPC Kit). 
+         # 2023.2 allows standalone installation without Base Kit.
+         - name: Setup Fortran
+           uses: fortran-lang/setup-fortran@v1
+           with:
+            compiler: ${{ matrix.toolchain.compiler }}
+            version: ${{ matrix.toolchain.version }}
+
+         # Manually install MKL since it is not included in the HPC Kit.
+         - name: Install MKL
+           run: choco install intel-oneapi-mkl --no-progress
 
          - name: Setup Python
            uses: actions/setup-python@v5
@@ -540,19 +554,9 @@ jobs:
 
          - run: pip install meson==1.7.0 ninja
 
-         # Switched to intel/setup-oneapi to ensure MKL is included.
-         # setup-fortran installs HPC kit which often lacks MKL.
-         - name: Setup Intel oneAPI
-           uses: intel/setup-oneapi@v3
-           with:
-             components: |
-               intel-oneapi-compiler-fortran
-               intel-oneapi-compiler-dpcpp-cpp
-               intel-oneapi-mkl-devel
-
-         # On Windows, we combine configuration, build, and test into one block
-         # because the environment variables set by setvars.bat are only local 
-         # to the current cmd session unless manually exported.
+         # On Windows, we combine configuration, build, and test into one block.
+         # We call setvars.bat manually to pick up both the Compiler (from setup-fortran)
+         # and MKL (from choco) which both install to C:\Program Files (x86)\Intel\oneAPI.
          - name: Build and Test
            shell: cmd
            run: |
