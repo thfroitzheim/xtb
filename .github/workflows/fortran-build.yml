@@ -606,7 +606,7 @@ jobs:
          shell: cmd
          run: |
            meson setup builddir --prefix=%CD%/install --libdir=lib ^
-             --native-file native.ini --optimization 2 --buildtype release ^
+             --native-file native.ini ^
              -Dlapack=openblas ^
              -Dcpcmx=disabled ^
              -Dfortran_link_args="-qopenmp" 
