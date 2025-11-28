@@ -527,7 +527,7 @@ jobs:
        fail-fast: false
        matrix:
          toolchain:
-           - { compiler: intel, version: '2023.2' }
+           - { compiler: intel, version: '2024.1' }
    
      steps:
        - name: Checkout code
