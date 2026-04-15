@@ -19,10 +19,14 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Property printout of the PTB method
 
 module xtb_ptb_property
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_env, only: wp
    use mctc_io, only: structure_type
 

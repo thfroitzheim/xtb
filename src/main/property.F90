@@ -16,6 +16,10 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 ! You should have received a copy of the GNU Lesser General Public License
 ! along with xtb.  If not, see <https://www.gnu.org/licenses/>.
 
@@ -27,7 +31,7 @@ module xtb_propertyoutput
    use xtb_solv_cm5
    use xtb_cube
    use xtb_topology
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use tblite_basis_type, only: basis_type
    use tblite_wavefunction_type, only: wavefunction_type
 #endif
@@ -393,13 +397,13 @@ module xtb_propertyoutput
       type(TPTBCalculator), intent(in) :: calc
       type(scc_results), intent(in) :: res
       
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    call tblite_ptb_property(iunit, env, chk%tblite, calc%bas, mol, chk%wfn, res)
 #endif
 
    end subroutine ptb_property
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    subroutine tblite_ptb_property &
       (iunit, env, wfn, bas, struc, wfx, res)
 

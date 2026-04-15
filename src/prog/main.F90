@@ -324,6 +324,7 @@ contains
          else
             call set_spin(env, cdum)
             call close_file(ich)
+            tblite%defined_spin = .true.
          end if
       end if
 
@@ -1491,6 +1492,7 @@ contains
             call args%nextArg(sec)
             if (allocated(sec)) then
                call set_spin(env, sec)
+               tblite%defined_spin = .true.
             else
                call env%error("Number of unpaired electrons is not provided", source)
             end if
@@ -1535,6 +1537,12 @@ contains
             call set_exttyp('eht')
             call env%warning("The use of '"//flag//"' is discouraged, "//&
                & "please use '--gfn 0' next time", source)
+
+         case ('--gxtb')
+            call args%nextArg(sec)
+            call set_exttyp('tblite')
+            call set_gfn(env, 'method', 'gxtb')
+            tblite%method = "gxtb"
 
          case ('--gfnff')
             call set_exttyp('ff')
@@ -1634,6 +1642,7 @@ contains
                call set_scc(env, 'temp', sec)
                !set etemp for tblite
                ldum = getValue(env, sec, tblite%etemp)
+               tblite%custom_etemp = .true.
             else
                call env%error("Temperature in --etemp option is missing", source)
             end if

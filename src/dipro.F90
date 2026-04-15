@@ -33,6 +33,7 @@ module xtb_dipro
    use xtb_dipro_fragment, only : get_wiberg_fragment
    use xtb_dipro_output, only : format_list, to_string
    use xtb_dipro_xtb, only : get_calculator
+   use tblite_basis_cache, only : basis_cache
    use tblite_basis_type, only : get_cutoff, basis_type
    use tblite_blas, only : dot, gemv, gemm
    use tblite_context_type, only : context_type
@@ -103,6 +104,8 @@ subroutine get_jab(env, tblite, mol, fragment, dipro)
    type(wavefunction_type) :: wfn
    !> wfx is =wfn just for fragments
    type(wavefunction_type), allocatable :: wfx(:)
+   ! Basis set cache
+   type(basis_cache) :: bcache
 
    !> Molecular gradient, strain derivatives
    real(wp), allocatable :: gradient(:, :), sigma(:,:), nel(:), homo(:,:)
@@ -159,8 +162,9 @@ subroutine get_jab(env, tblite, mol, fragment, dipro)
 
    allocate(overlap(xcalc%bas%nao, xcalc%bas%nao),y(xcalc%bas%nao,2))
    cutoff = get_cutoff(xcalc%bas)
-   call get_lattice_points(struc%periodic, struc%lattice, cutoff, trans) 
-   call get_overlap(struc, trans, cutoff, xcalc%bas, overlap)  
+   call get_lattice_points(struc%periodic, struc%lattice, cutoff, trans)
+   call xcalc%bas%update(struc, bcache, .false.)
+   call get_overlap(struc, trans, cutoff, xcalc%bas, bcache, overlap)
 
 !==================set up fragments if not given by xcontrol=========================
 

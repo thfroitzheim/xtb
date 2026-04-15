@@ -21,13 +21,17 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 module xtb_ptb_coulomb
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_env, only: wp
    use mctc_io, only: structure_type
 
    use tblite_basis_type, only: basis_type
-   use tblite_coulomb_charge_effective, only: harmonic_average
+   use tblite_utils, only: average_type, new_average, average_id
    use tblite_blas, only: symv
    use tblite_wavefunction, only: wavefunction_type
    use tblite_scf_potential, only: potential_type
@@ -163,6 +167,7 @@ contains
       real(wp), intent(in) :: kok
 
       integer :: izp, iat, iid, ish, jsh, jat
+      type(average_type) :: average
 
       !> Initialize variables
       if (.not. allocated(self%gam)) allocate (self%gam(maxval(bas%nsh_id), mol%nat), source=0.0_wp)
@@ -187,13 +192,14 @@ contains
       end do
 
       !> Effective Hubbard parameters; Eq. 16
+      call new_average(average, average_id%harmonic)
       do iat = 1, mol%nat
          do jat = 1, mol%nat
             self%hubbard(:, :, jat, iat) = 0.0_wp
             do ish = 1, bas%nsh_at(iat)
                do jsh = 1, bas%nsh_at(jat)
                   self%hubbard(jsh, ish, jat, iat) = &
-                     & harmonic_average(self%gam(ish, iat), self%gam(jsh, jat))
+                     & average%value(self%gam(ish, iat), self%gam(jsh, jat))
                end do
             end do
          end do

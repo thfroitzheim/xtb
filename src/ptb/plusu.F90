@@ -19,12 +19,16 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> DFT+U approximation within PTB
 !> Consumes parameters, the density matrix and the coordination numbers;
 !> returns the DFT+U potential
 
 module xtb_ptb_plusu
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    !> mctc-lib
    use mctc_env, only: error_type, wp
    use mctc_io, only: structure_type

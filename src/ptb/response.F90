@@ -19,10 +19,14 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Response approximation within PTB
 
 module xtb_ptb_response
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
 
    !> mctc-lib
    use mctc_env, only: error_type, wp

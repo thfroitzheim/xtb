@@ -19,6 +19,10 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 ! % cat xtbout.json
 ! {
 ! # calculation information
@@ -603,13 +607,13 @@ contains
       type(scc_results), intent(in) :: sccres
       type(freq_results), intent(in) :: freqres
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
       call tblite_ptb_json(ijson, mol, wfx, calc%bas, sccres, freqres)
 #endif
 
    end subroutine main_ptb_json
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    subroutine tblite_ptb_json &
       (ijson, mol, wfx, bas, sccres, freqres)
       use mctc_env, only: wp

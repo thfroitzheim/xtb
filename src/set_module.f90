@@ -1504,6 +1504,10 @@ subroutine set_gfn(env,key,val)
          set1=.false.
          return
       endif
+      if(val.eq.'gxtb') then
+         set1=.false.
+         return
+      end if
       if (getValue(env,val,idum).and.set1) then
          if ((idum.ge.0).and.(idum.le.2)) then ! actually, this looks stupid...
             set%gfn_method = idum

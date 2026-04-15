@@ -19,9 +19,13 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Declaration of an integral storage container to collect all overlap related integrals
 module xtb_ptb_integral_types
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_env, only: wp
    implicit none
    private

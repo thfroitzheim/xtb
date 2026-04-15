@@ -16,12 +16,16 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 ! You should have received a copy of the GNU Lesser General Public License
 ! along with xtb.  If not, see <https://www.gnu.org/licenses/>.
 
 !> Calculation of all required overlap matrices
 module xtb_ptb_integrals
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_env, only: wp
    use mctc_io, only: structure_type
 

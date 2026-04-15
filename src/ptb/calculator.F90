@@ -19,6 +19,10 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Density matrix (P) tight binding (TB) calculator
 module xtb_ptb_calculator
    use xtb_type_calculator, only: TCalculator
@@ -35,7 +39,7 @@ module xtb_ptb_calculator
    use mctc_io, only: structure_type, new
    use mctc_io_convert, only: autoev
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use xtb_tblite_mapping, only : convert_tblite_to_wfn, convert_tblite_to_results
 
    use multicharge_model, only: new_eeq_model, mchrg_model_type, eeq_model
@@ -66,7 +70,7 @@ module xtb_ptb_calculator
    !> Calculator interface for PTB method
    type, extends(TCalculator) :: TPTBCalculator
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
       !> PTB vDZP basis set
       type(basis_type) :: bas, cbas
 
@@ -124,7 +128,7 @@ contains
       logical :: exist
       logical :: exitRun
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
       !> mctc-io structure type
       type(structure_type) :: mol
       type(eeq_model), allocatable :: tmp_eeqmodel
@@ -229,7 +233,7 @@ contains
       !> Detailed results
       type(scc_results), intent(out) :: results
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
       !#################################################
       !> PTB INDIVIDUAL
       !#################################################
@@ -343,7 +347,7 @@ contains
    end subroutine writeInfo
 
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
 !---------------------------------------------
 ! Initialize new wavefunction
 !---------------------------------------------
@@ -372,7 +376,7 @@ contains
    end subroutine newPTBWavefunction
 #endif
 
-#if ! WITH_TBLITE
+#if ! WITH_TBLITE || ! WITH_PTB
    subroutine feature_not_implemented(env)
       !> Computational environment
       type(TEnvironment), intent(inout) :: env

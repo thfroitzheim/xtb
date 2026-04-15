@@ -21,8 +21,12 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 module xtb_ptb_guess
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_io, only: structure_type
    use mctc_env, only: wp, error_type
 

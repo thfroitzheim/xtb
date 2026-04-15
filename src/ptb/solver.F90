@@ -19,10 +19,14 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Solver for the PTB method based on the diagonalization solver from tblite
 module xtb_ptb_solver
    
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
 
    use mctc_env, only : sp, dp, wp, error_type
    use tblite_blas, only : gemm

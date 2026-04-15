@@ -19,10 +19,14 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Module for the mixed Mulliken-Loewdin population analysis
 
 module xtb_ptb_mmlpopanalysis
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_env, only: wp
 
    use xtb_mctc_lapack, only: lapack_syev

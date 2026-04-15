@@ -23,6 +23,9 @@ write(iunit,'(3x,a)') &
    "  J. Seibert, S. Spicher, S. Grimme, WIREs Comput. Mol. Sci., 2020, 11,",&
    "  e01493. DOI: 10.1002/wcms.1493",&
    "",&
+   "for g-xTB:", &
+   "* T. Froitzheim, M. Müller, A. Hansen, S. Grimme, ChemRxiv, 2025, preprint.",&
+   "  DOI: 10.26434/chemrxiv-2025-bjxv", &
    "for GFN2-xTB:",&
    "* C. Bannwarth, S. Ehlert and S. Grimme., J. Chem. Theory Comput., 2019,",&
    "  15, 1652-1671. DOI: 10.1021/acs.jctc.8b01176",&
@@ -118,6 +121,9 @@ subroutine help(iunit)
    "-u, --uhf INT",&
    "    specify number of unpaired electrons as INT, overrides .UHF file and xcontrol option",&
    "",&
+   "--gxtb",&
+   "    use the g-xTB method via the tblite library",&
+   "",&
    "--gfn INT",&
    "    specify parametrisation of GFN-xTB (default = 2)",&
    "",&
@@ -172,6 +178,9 @@ subroutine help(iunit)
    "    thf, water.",&
    "    The solvent input is not case-sensitive. The Gsolv",&
    "    reference state can be chosen as reference, bar1M, or gsolv (default).",&
+   "",&
+   "--gbe EPSILON",&
+   "    analytical linearized Poisson-Boltzmann (ALPB) model with custom epsilon.",&
    "",&
    "-g, --gbsa SOLVENT [STATE]",&
    "    generalized born (GB) model with solvent accessable surface (SASA) model,",&

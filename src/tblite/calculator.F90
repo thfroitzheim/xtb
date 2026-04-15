@@ -27,6 +27,7 @@ module xtb_tblite_calculator
    use mctc_io_constants, only : codata
    use mctc_io_convert, only : aatoau, ctoau, autoev
 #if WITH_TBLITE
+   use multicharge, only : get_charges
    use tblite_basis_type, only : basis_type
    use tblite_ceh_ceh, only : new_ceh_calculator
    use tblite_container, only : container_type
@@ -43,11 +44,12 @@ module xtb_tblite_calculator
    use tblite_wavefunction, only : wavefunction_type, new_wavefunction, &
       & sad_guess, eeq_guess, eeqbc_guess
    use tblite_xtb_calculator, only : xtb_calculator, new_xtb_calculator
-   use tblite_xtb_gfn2, only : new_gfn2_calculator, export_gfn2_param
-   use tblite_xtb_gfn1, only : new_gfn1_calculator, export_gfn1_param
-   use tblite_xtb_ipea1, only : new_ipea1_calculator, export_ipea1_param
+   use tblite_xtb_gxtb, only : new_gxtb_calculator
+   use tblite_xtb_gfn2, only : new_gfn2_calculator
+   use tblite_xtb_gfn1, only : new_gfn1_calculator
+   use tblite_xtb_ipea1, only : new_ipea1_calculator
    use tblite_xtb_singlepoint, only : xtb_singlepoint
-   use tblite_data_spin, only : get_spin_constant 
+   use tblite_data_spin, only : get_spin_constant
    use xtb_tblite_mapping, only : convert_tblite_to_wfn
 #endif
    use xtb_tblite_mapping, only : convert_tblite_to_results
@@ -81,8 +83,12 @@ module xtb_tblite_calculator
    type :: TTBLiteInput
       !> Perform a spin-polarized calculation
       logical :: spin_polarized = .false.
+      !> Flag whether a spin state was defined by the user to activate UHF for g-xTB
+      logical :: defined_spin = .false.
       !> Electronic temperature in Kelvin
       real(wp) :: etemp = 300.0_wp
+      !> Flag indicating whether the temperature was set by the user
+      logical :: custom_etemp = .false.
       !> Numerical accuracy
       real(wp) :: accuracy = 1.0_wp
       !> Maximum number of cycles for SCC convergence
@@ -169,9 +175,12 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
 
 #if WITH_TBLITE
    character(len=:), allocatable :: method
+   real(wp), allocatable :: wll(:, :, :)
    type(error_type), allocatable :: error
    type(structure_type) :: struc
    type(param_record) :: param
+   type(solvation_input) :: solv_input
+   integer :: sol_state
 
    struc = mol
 
@@ -194,6 +203,12 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
       select case(method)
       case default
          call fatal_error(error, "Unknown method '"//method//"' requested")
+      case("gxtb")
+         if (.not. input%custom_etemp) calc%etemp = 0.0_wp
+         if (input%defined_spin) then
+            calc%nspin = 2
+         end if
+         call new_gxtb_calculator(calc%tblite, struc, error, calc%accuracy)
       case("gfn2")
          call new_gfn2_calculator(calc%tblite, struc, error)
       case("gfn1")
@@ -214,7 +229,7 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
 
    ! The maximum number of iterations is a property of the tblite calculator 
    ! itself and has to be set AFTER the calculator is created
-   calc%tblite%max_iter = input%max_iter
+   calc%tblite%iterator%max_iter = input%max_iter
 
    if (allocated(input%efield)) then
       block
@@ -504,6 +519,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    real(wp) :: efix
    real(wp), allocatable :: dpmom(:), qpmom(:)
    character(len=:), allocatable :: wbo_label, molmom_label
+   type(wavefunction_type), allocatable :: wfn_aux
 
    struc = mol
    ctx%unit = env%unit
@@ -530,8 +546,18 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    ! Needed to update atomic charges after reading restart file
    call get_qat_from_qsh(self%tblite%bas, chk%tblite%qsh, chk%tblite%qat)
 
+   ! Create auxiliary wavefunction and atomic charges
+   if (allocated(self%tblite%charge_model)) then
+      allocate(wfn_aux)
+      call new_wavefunction(wfn_aux, struc%nat, self%tblite%bas%nsh, 0, 1, 0.0_wp, .true.)
+      call get_charges(self%tblite%charge_model, struc, error, wfn_aux%qat(:, 1), &
+         & dqdr=wfn_aux%dqatdr(:, :, :, 1), dqdL=wfn_aux%dqatdL(:, :, :, 1))
+      if (allocated(error)) return
+   end if
+
    call xtb_singlepoint(ctx, struc, self%tblite, chk%tblite, self%accuracy, &
-      & energy, gradient, sigma, printlevel, results%tblite_results, post_proc)
+      & energy, gradient, sigma, printlevel, results=results%tblite_results, &
+      & post_proc=post_proc, wfn_aux=wfn_aux)
    if (ctx%failed()) then
       do while(ctx%failed())
          call ctx%get_error(error)
@@ -638,20 +664,23 @@ end subroutine get_qat_from_qsh
 #endif
 
 #if WITH_TBLITE
-subroutine get_spin_constants(wll, mol, bas)
-   real(wp), allocatable, intent(out) :: wll(:, :, :)
+subroutine get_spin_constants(mol, bas, wll)
+   !> Molecular structure data
    type(structure_type), intent(in) :: mol
+   !> Basis set information
    type(basis_type), intent(in) :: bas
-
+   !> Spin-constants
+   real(wp), allocatable, intent(out) :: wll(:, :, :)
+   
    integer :: izp, ish, jsh, il, jl
 
    allocate(wll(bas%nsh, bas%nsh, mol%nid), source=0.0_wp)
 
    do izp = 1, mol%nid
       do ish = 1, bas%nsh_id(izp)
-         il = bas%cgto(ish, izp)%ang
+         il = bas%cgto(ish, izp)%raw%ang
          do jsh = 1, bas%nsh_id(izp)
-            jl = bas%cgto(jsh, izp)%ang
+            jl = bas%cgto(jsh, izp)%raw%ang
             wll(jsh, ish, izp) = get_spin_constant(jl, il, mol%num(izp))
          end do
       end do

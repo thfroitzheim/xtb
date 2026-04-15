@@ -18,6 +18,10 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 module test_ptb
 
    use mctc_env, only: wp
@@ -51,7 +55,7 @@ contains
       type(unittest_type), allocatable, intent(out) :: testsuite(:)
 
       testsuite = [ &
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
                   new_unittest("basis", test_ptb_basis), &
                   new_unittest("eeq", test_ptb_eeq), &
                   new_unittest("overlap", test_ptb_overlap), &
@@ -76,7 +80,7 @@ contains
 
    end subroutine collect_ptb
 
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    subroutine test_ptb_basis(error)
       use xtb_ptb_vdzp, only: add_vDZP_basis
       use tblite_basis_type, only: basis_type

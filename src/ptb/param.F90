@@ -19,9 +19,13 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> PTB parametrization data
 module xtb_ptb_param
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use xtb_mctc_accuracy, only: wp
    use xtb_ptb_data, only: init, &
    & TPTBData, TCorePotentialData, THamiltonianData, &

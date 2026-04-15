@@ -19,10 +19,14 @@
 #define WITH_TBLITE 0
 #endif
 
+#ifndef WITH_PTB
+#define WITH_PTB 0
+#endif
+
 !> Two-step SCF of the PTB method
 
 module xtb_ptb_scf
-#if WITH_TBLITE
+#if WITH_TBLITE && WITH_PTB
    use mctc_io, only: structure_type
    use mctc_env, only: wp, error_type, fatal_error
 
