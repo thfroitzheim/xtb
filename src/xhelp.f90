@@ -179,9 +179,6 @@ subroutine help(iunit)
    "    The solvent input is not case-sensitive. The Gsolv",&
    "    reference state can be chosen as reference, bar1M, or gsolv (default).",&
    "",&
-   "--gbe EPSILON",&
-   "    analytical linearized Poisson-Boltzmann (ALPB) model with custom epsilon.",&
-   "",&
    "-g, --gbsa SOLVENT [STATE]",&
    "    generalized born (GB) model with solvent accessable surface (SASA) model,",&
    "    available solvents are acetone, acetonitrile, benzene (only GFN1-xTB), CH2Cl2,",&
@@ -222,11 +219,15 @@ subroutine help(iunit)
    "--pop",&
    "    requests printout of Mulliken population analysis",&
    "",&
-   "--molden",&
-   "    requests printout of molden file",&
+   "--molden [THRESHOLD]",&
+   "    requests printout of molden file,", &
+   "    the optional energy threshold limits the printing of virtual orbitals (default: 2 Eh).",&
    "",&
    "--dipole",&
    "    requests dipole printout",&
+   "",&
+   "--quadrupole",&
+   "    requests quadrupole printout",&
    "",&
    "--raman", &
    "    requests Raman spectrum calculation via combination of GFN2-xTB and PTB",&

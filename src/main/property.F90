@@ -251,7 +251,7 @@ module xtb_propertyoutput
          end if
          emo = wfx%emo * evtoau
          focc = wfx%focca + wfx%foccb
-         call printmold(mol%n, basis%nao, basis%nbf, mol%xyz, mol%at, C, emo, focc, 2.0_wp, basis)
+         call printmold(mol%n, basis%nao, basis%nbf, mol%xyz, mol%at, C, emo, focc, set%pr_molden_thr, basis)
          write (iunit, '(/,"MOs/occ written to file <molden.input>",/)')
          deallocate (C, focc, emo)
       end if
@@ -295,8 +295,9 @@ module xtb_propertyoutput
       use xtb_type_calculator, only: TCalculator
       use xtb_tblite_calculator, only: TTBLiteCalculator
 #if WITH_TBLITE
-      use tblite_output_ascii, only : ascii_levels, ascii_atomic_charges, &
+      use tblite_output_ascii, only : ascii_levels, ascii_charges, &
          & ascii_dipole_moments, ascii_quadrupole_moments
+      use xtb_tblite_molden, only : print_molden
 #endif
 
       implicit none
@@ -316,23 +317,35 @@ module xtb_propertyoutput
 
 #if WITH_TBLITE
       type(structure_type) :: struc
-      integer :: ifile
-      real(wp) :: dip
-      real(wp), allocatable :: wbo(:, :), dpmom(:), qpmom(:)
+      integer :: ifile, prlevel
+      real(wp), allocatable :: wbo(:, :, :), coeff_cart(:, :, :), dpmom(:), qpmom(:)
 
       struc = mol
+
+      ! Construct a print level number consistent with tblite
+      if (set%verbose) then
+         prlevel = 2
+         if (set%veryverbose) then
+            prlevel = 3   
+         end if
+      else if(set%silent) then
+         prlevel = 0
+      else
+         prlevel = 1
+      end if
 
       ! Orbital energies and occupation
       if (set%pr_eig) then
          write (iunit, '(/,4x,"*",1x,a)') "Orbital Energies and Occupations"
-         call ascii_levels(iunit, 0, wfx%tblite%emo, wfx%tblite%focc, 11)
+         call ascii_levels(iunit, prlevel, wfx%tblite%emo, wfx%tblite%focc, 11)
       end if
 
       ! Mulliken charges
-      if (set%pr_mulliken) then
-         call ascii_atomic_charges(iunit, 0, struc, wfx%tblite%qat(:, 1))
+      if (set%pr_mulliken .and. .not. set%silent) then
+         call ascii_charges(iunit, prlevel, struc, calc%tblite%bas, wfx%tblite%qat, &
+            & wfx%tblite%qsh, wfx%tblite%n0sh)
       end if
-      if (set%pr_charges) then
+      if (set%pr_charges .and. .not. set%ceasefiles) then
          call open_file(ifile, 'charges', 'w')
          call print_charges(ifile, struc%nat, wfx%tblite%qat(:, 1))
          call close_file(ifile)
@@ -341,12 +354,18 @@ module xtb_propertyoutput
       ! Wiberg-Mayer bond orders
       if (set%pr_wiberg) then
          call res%tblite_results%dict%get_entry("bond-orders", wbo)
-         call open_file(ifile, 'wbo', 'w')
-         call print_wbofile(ifile, struc%nat, wbo, 0.1_wp)
-         call close_file(ifile)
-         call print_wiberg(iunit, struc%nat, struc%num, mol%sym, wbo, 0.1_wp)
-
-         call checkTopology(iunit, mol, wbo, 1)
+         if (.not. set%ceasefiles) then
+            call open_file(ifile, 'wbo', 'w')
+            call print_wbofile(ifile, struc%nat, wbo, 0.1_wp)
+            call close_file(ifile)
+         end if
+         if (.not. set%silent) then
+            call print_wiberg(iunit, struc%nat, struc%num(mol%id), mol%sym(mol%id), &
+               & wbo(:, :, 1), 0.1_wp)
+   
+            call checkTopology(iunit, mol, wbo(:, :, 1), 1)
+            write (iunit, '(a)')
+         end if
       end if
 
       ! Fragment-resolved Wiberg-Mayer bond orders
@@ -354,24 +373,34 @@ module xtb_propertyoutput
          if (.not. allocated(wbo)) then
             call res%tblite_results%dict%get_entry("bond-orders", wbo)
          end if
-         call print_wbo_fragment(iunit, struc%nat, struc%num, wbo, 0.1_wp)
+         call print_wbo_fragment(iunit, struc%nat, struc%num, wbo(:, :, 1), 0.1_wp)
       end if
-      write (iunit, '(a)')
+      if (allocated(wbo)) then
+         deallocate(wbo)
+      end if
+   
+      ! Molden file
+      if (set%pr_molden_input) then
+         call res%tblite_results%dict%get_entry("cartesian-mos", coeff_cart)
 
-      ! Multipole moments
-      if (set%pr_dipole) then
+         call print_molden(struc, wfx%tblite, calc%tblite%bas, &
+            & res%tblite_results%bcache, coeff_cart, set%pr_molden_thr)
+         write (iunit, '(/,"MOs/occ written to file <molden.input>",/)')
+         deallocate (coeff_cart)
+      end if
+
+      ! Dipole moments
+      if (set%pr_dipole .and. .not. set%silent) then
          call res%tblite_results%dict%get_entry("molecular-dipole", dpmom)
-         call ascii_dipole_moments(iunit, 1, struc, wfx%tblite%dpat(:, :, 1), dpmom)
-         dip = norm2(dpmom)
-         write (iunit, '(4x,"Total dipole moment (a.u. / Debye):",2f9.4)') &
-               & dip, dip * autod
-         write (iunit, '(a)')
-
-         if (calc%tblite%method == "gfn2") then
-            call res%tblite_results%dict%get_entry("molecular-quadrupole", qpmom)
-            call ascii_quadrupole_moments(iunit, 1, struc, wfx%tblite%qpat(:, :, 1), qpmom)
-         end if
+         call ascii_dipole_moments(iunit, prlevel, struc, wfx%tblite%dpat(:, :, 1), dpmom)
       end if
+
+      ! Quadrupole moments (available for all methods in tblite)
+      if (set%pr_quadrupole .and. .not. set%silent) then
+         call res%tblite_results%dict%get_entry("molecular-quadrupole", qpmom)
+         call ascii_quadrupole_moments(iunit, prlevel, struc, wfx%tblite%qpat(:, :, 1), qpmom)
+      end if
+
 #else 
       call env%error("Compiled without support for tblite library")
 #endif

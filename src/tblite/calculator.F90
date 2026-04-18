@@ -47,6 +47,7 @@ module xtb_tblite_calculator
    use tblite_xtb_gxtb, only : new_gxtb_calculator
    use tblite_xtb_gfn2, only : new_gfn2_calculator
    use tblite_xtb_gfn1, only : new_gfn1_calculator
+   use tblite_xtb_h0, only : get_number_electrons
    use tblite_xtb_ipea1, only : new_ipea1_calculator
    use tblite_xtb_singlepoint, only : xtb_singlepoint
    use tblite_data_spin, only : get_spin_constant
@@ -175,18 +176,16 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
 
 #if WITH_TBLITE
    character(len=:), allocatable :: method
-   real(wp), allocatable :: wll(:, :, :)
    type(error_type), allocatable :: error
    type(structure_type) :: struc
    type(param_record) :: param
    type(solvation_input) :: solv_input
-   integer :: sol_state
+   real(wp) :: nel
 
    struc = mol
 
    calc%nspin = merge(2, 1, input%spin_polarized)
    calc%etemp = input%etemp * kt
-   calc%guess = "sad"
    calc%accuracy = input%accuracy
    calc%color = input%color
    calc%spin_polarized = input%spin_polarized
@@ -204,27 +203,40 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
       case default
          call fatal_error(error, "Unknown method '"//method//"' requested")
       case("gxtb")
+         ! Default for g-xTB is 0K electronic temperature
          if (.not. input%custom_etemp) calc%etemp = 0.0_wp
+         call new_gxtb_calculator(calc%tblite, struc, error, calc%accuracy)
+         ! For g-xTB, we always do a UHF calculation if unpaired electrons
+         ! are defined or there is an uneven number of electrons
          if (input%defined_spin) then
             calc%nspin = 2
+         else
+            call get_number_electrons(struc, calc%tblite%bas, calc%tblite%h0, nel)
+            if (mod(nint(nel), 2) > 0 .and. calc%nspin == 1) then
+               calc%nspin = 2
+            end if
          end if
-         call new_gxtb_calculator(calc%tblite, struc, error, calc%accuracy)
       case("gfn2")
-         call new_gfn2_calculator(calc%tblite, struc, error)
+         call new_gfn2_calculator(calc%tblite, struc, error, calc%accuracy)
       case("gfn1")
-         call new_gfn1_calculator(calc%tblite, struc, error)
+         call new_gfn1_calculator(calc%tblite, struc, error, calc%accuracy)
       case("ipea1")
-         call new_ipea1_calculator(calc%tblite, struc, error)
+         call new_ipea1_calculator(calc%tblite, struc, error, calc%accuracy)
       case("ceh")
          calc%guess = method
          calc%nspin = 1
          calc%etemp = 4000.0_wp * kt
-         call new_ceh_calculator(calc%tblite, struc, error)
+         call new_ceh_calculator(calc%tblite, struc, error, calc%accuracy)
       end select
    end if
    if (allocated(error)) then
       call env%error(error%message, source)
       return
+   end if
+
+   ! Set the default guess method
+   if (.not. allocated(calc%guess)) then
+      calc%guess = calc%tblite%default_guess
    end if
 
    ! The maximum number of iterations is a property of the tblite calculator 
@@ -245,7 +257,7 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
          type(spin_polarization), allocatable :: spin
          real(wp), allocatable :: wll(:, :, :)
          allocate(spin)
-         call get_spin_constants(wll, struc, calc%tblite%bas)
+         call get_spin_constants(struc, calc%tblite%bas, wll)
          call new_spin_polarization(spin, struc, wll, calc%tblite%bas%nsh_id)
          call move_alloc(spin, cont)
          call calc%tblite%push_back(cont)
@@ -518,7 +530,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    type(post_processing_list), allocatable :: post_proc
    real(wp) :: efix
    real(wp), allocatable :: dpmom(:), qpmom(:)
-   character(len=:), allocatable :: wbo_label, molmom_label
+   character(len=:), allocatable :: wbo_label, molmom_label, trafo_label
    type(wavefunction_type), allocatable :: wfn_aux
 
    struc = mol
@@ -527,20 +539,34 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
 
    ! Setup the required post-processing
    allocate(post_proc)
-   ! Wiberg-Mayer bond orders
-   wbo_label = "bond-orders"
-   call add_post_processing(post_proc, wbo_label, error)
-   if (allocated(error)) then
-      call env%error(error%message, source)
-      return
+   if (set%pr_wiberg .or. set%pr_wbofrag) then
+      ! Wiberg-Mayer bond orders
+      wbo_label = "bond-orders"
+      call add_post_processing(post_proc, wbo_label, error)
+      if (allocated(error)) then
+         call env%error(error%message, source)
+         return
+      end if
    end if
 
-   ! Molecular multipole moments
-   molmom_label = "molmom"
-   call add_post_processing(post_proc, molmom_label, error)
-   if (allocated(error)) then
-      call env%error(error%message, source)
-      return
+   if (set%pr_dipole) then
+      ! Molecular multipole moments
+      molmom_label = "molmom"
+      call add_post_processing(post_proc, molmom_label, error)
+      if (allocated(error)) then
+         call env%error(error%message, source)
+         return
+      end if
+   end if
+
+   if (set%pr_molden_input) then
+      ! Spherical harmonic to cartesian MO coefficient transformation
+      trafo_label = "trafo"
+      call add_post_processing(post_proc, trafo_label, error)
+      if (allocated(error)) then
+         call env%error(error%message, source)
+         return
+      end if
    end if
 
    ! Needed to update atomic charges after reading restart file
@@ -557,7 +583,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
 
    call xtb_singlepoint(ctx, struc, self%tblite, chk%tblite, self%accuracy, &
       & energy, gradient, sigma, printlevel, results=results%tblite_results, &
-      & post_proc=post_proc, wfn_aux=wfn_aux)
+      & post_process=post_proc, wfn_aux=wfn_aux)
    if (ctx%failed()) then
       do while(ctx%failed())
          call ctx%get_error(error)

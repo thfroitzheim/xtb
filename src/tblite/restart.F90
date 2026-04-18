@@ -65,6 +65,10 @@ subroutine loadRestart(env, chk, fname, success)
          if (info == 0) &
             read(io, iostat=info) chk%tblite%qpat
       end if
+      if (version >= 3) then
+         if (info == 0) &
+            read(io, iostat=info) chk%tblite%density
+      end if
    end if
 
    success = info == 0
@@ -95,7 +99,7 @@ subroutine dumpRestart(env, chk, fname)
    end if
 
    write(io) &
-      2_i8, &
+      3_i8, &
       0_i8, &
       size(chk%tblite%n0at, kind=i8), &
       size(chk%tblite%n0sh, kind=i8), &
@@ -107,6 +111,9 @@ subroutine dumpRestart(env, chk, fname)
    ! Always write multipole moments
    write(io) chk%tblite%dpat
    write(io) chk%tblite%qpat
+
+   ! Write density matrix for g-xTB
+   write(io) chk%tblite%density
 
    ! call env%io%closeFile(io)
    call close_file(io)

@@ -16,8 +16,8 @@
 
 set(_lib "mctc-lib")
 set(_pkg "MCTCLIB")
-set(_url "https://github.com/grimme-lab/mctc-lib")
-set(_rev "v0.5.1")
+set(_url "https://github.com/thfroitzheim/mctc-lib")
+set(_rev "conversion-debye")
 
 if(NOT DEFINED "${_pkg}_FIND_METHOD")
    set("${_pkg}_FIND_METHOD" "cmake" "pkgconf" "subproject" "fetch")

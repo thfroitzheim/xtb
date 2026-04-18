@@ -135,9 +135,6 @@ OPTIONS
     The solvent input is not case-sensitive.
     The Gsolv reference state can be chosen as 'reference', 'bar1M', or 'gsolv' (default).
 
-*--gbe* 'EPSILON'::
-    analytical linearized Poisson-Boltzmann (ALPB) model with custom epsilon.
-
 *-g, --gbsa* 'SOLVENT' ['STATE']::
     generalized born (GB) model with solvent accessable surface (SASA) model,
     available solvents are 'acetone', 'acetonitrile', 'benzene' (only GFN1-xTB),
@@ -179,8 +176,9 @@ OPTIONS
 *--pop*::
     requests printout of Mulliken population analysis
 
-*--molden*::
-    requests printout of molden file
+*--molden* ['THRESHOLD']::
+    requests printout of molden file,
+    the optional energy threshold limits the printing of virtual orbitals (default: 2 Eh).
 
 *--alpha* ::
     requests the extension of electrical properties to static molecular dipole polarizabilities
@@ -192,6 +190,9 @@ OPTIONS
     
 *--dipole*::
     requests dipole printout
+
+*--quadrupole*::
+    requests quadrupole printout
 
 *--wbo*::
     requests Wiberg bond order printout

@@ -15,6 +15,10 @@
 ! You should have received a copy of the GNU Lesser General Public License
 ! along with xtb.  If not, see <https://www.gnu.org/licenses/>.
 
+#ifndef WITH_TBLITE
+#define WITH_TBLITE 0
+#endif
+
 !cccccccccccccccccccccccccccccccc
 !    write out Molden input     c
 !cccccccccccccccccccccccccccccccc
@@ -321,6 +325,225 @@ subroutine lenint(iin,iout)
    return
 end subroutine
 
+
 !     *****************************************************************
+#if WITH_TBLITE
+!> Module encapsulating the tblite Molden printer
+module xtb_tblite_molden
+   use mctc_env, only : wp
+   use mctc_io_structure, only : structure_type
+   use tblite_wavefunction_type, only : wavefunction_type
+   use tblite_basis_type, only : basis_type, maxg
+   use tblite_basis_cache, only : basis_cache
+   implicit none
+   private
+
+   public :: print_molden
+
+contains
+
+   !> Writes the MOs, basis set, and geometry to a standard Molden input file
+   subroutine print_molden(mol, wfn, basis, bcache, coeff_cart, thr)
+      !> Molecular structure data
+      type(structure_type), intent(in) :: mol
+      !> Wavefunction structure data
+      type(wavefunction_type), intent(in) :: wfn
+      !> Basis set container
+      class(basis_type), intent(in) :: basis
+      !> Basis cache
+      type(basis_cache), intent(in) :: bcache
+      !> Cartesian MO coefficients, shape [nao_cart, nao, nspin]
+      real(wp), intent(in) :: coeff_cart(:,:,:)
+      !> Optional energy threshold to truncate the virtual MO output
+      real(wp), intent(in), optional :: thr
+
+      integer :: iwfn, iat, ish, iprim, imo, jao, ispin, nmomax
+      integer :: l, ncart, icomp, iao_off
+      integer :: perm(15)
+      character(len=1) :: aang
+      real(wp), allocatable :: prim_coeff(:)
+      real(wp) :: thr_
+
+      ! Energy threshold to truncate highly virtual states
+      if (present(thr)) then
+         thr_ = thr
+      else
+         thr_ = 2.0_wp
+      end if
+
+      ! Open Molden output file
+      iwfn = 29
+      open(unit=iwfn, file='molden.input', status='replace', action='write')
+
+      write(iwfn,'(A)') '[Molden Format]'
+      write(iwfn,'(A)') '[Title]'
+      write(iwfn,'(A)') ' tblite output'
+
+      ! Print atomic symbols, effective charge and coordinates
+      write(iwfn,'(A)') '[Atoms] AU'
+
+      do iat = 1, mol%nat
+         ! Notation: symbol, atom, effective nuclear charge, coordinates
+         write(iwfn,'(a2,2i6,3E22.14)') &
+            & mol%sym(mol%id(iat)), iat, nint(wfn%n0at(iat)), &
+            & mol%xyz(1,iat), mol%xyz(2,iat), mol%xyz(3,iat)
+      end do
+
+      ! Print basis set data 
+      write(iwfn,'(A)') '[GTO]'
+
+      allocate(prim_coeff(maxg))
+      do iat = 1, mol%nat
+         write(iwfn,'(i6,a)') iat, ' 0'
+         do ish = 1, basis%nsh_at(iat)
+            associate(p_cgto => basis%cgto(ish, mol%id(iat))%raw)
+               select case(p_cgto%ang)
+                  case(0); aang = 's'
+                  case(1); aang = 'p'
+                  case(2); aang = 'd'
+                  case(3); aang = 'f'
+                  case(4); aang = 'g'
+                  case default
+                     error stop "[Fatal] Molden writer only supports angular momenta up to g"
+               end select
+
+               ! Obtain the primtive contraction coefficients including 
+               ! possible charge scaling and normalization factors
+               call p_cgto%get_coeffs(bcache%cgto(ish, iat), prim_coeff)
+
+               write(iwfn,'(a,i6,f8.2)') aang, p_cgto%nprim, 1.00_wp
+               do iprim = 1, p_cgto%nprim
+                  write(iwfn,'(2E22.14)') p_cgto%alpha(iprim), prim_coeff(iprim)
+               end do
+            end associate
+         end do
+         write(iwfn,*)
+      end do
+      deallocate(prim_coeff)
+
+      ! Print occupation number, coefficients and orbital energies
+      write(iwfn,'(A)') '[MO]'
+
+      do ispin = 1, wfn%nspin
+         ! Truncate the virtual MOs based on the given energy threshhold
+         nmomax = 0
+         do imo = 1, basis%nao
+            if (wfn%emo(imo, ispin) > thr_ .and. nmomax == 0) nmomax = imo - 1
+         end do
+         if (nmomax == 0) nmomax = basis%nao
+
+         do imo = 1, nmomax
+            write(iwfn,'(A)', advance='no') 'Sym= '
+            if (wfn%nspin == 2) then
+               if (ispin == 1) then
+                  write(iwfn,'(i5,a)') imo, 'a (alpha)'
+               else
+                  write(iwfn,'(i5,a)') imo, 'a (beta)'
+               end if
+            else
+               write(iwfn,'(i5,a)') imo, 'a'
+            end if
+
+            write(iwfn,'(A)', advance='no') 'Ene= '
+            write(iwfn,*) wfn%emo(imo, ispin)
+
+            write(iwfn,'(A)', advance='no') 'Spin= '
+            if (wfn%nspin == 2) then
+               if (ispin == 1) then
+                  write(iwfn,'(A)') 'Alpha'
+               else
+                  write(iwfn,'(A)') 'Beta'
+               end if
+            else
+               write(iwfn,'(A)') 'Alpha'
+            end if
+
+            write(iwfn,'(A)', advance='no') 'Occup= '
+            if (wfn%nspin == 1) then
+               write(iwfn,'(F14.8)') wfn%focc(imo, 1) + wfn%focc(imo, 2)
+            else
+               write(iwfn,'(F14.8)') wfn%focc(imo, ispin)
+            end if
+
+            ! Write coefficients shell-by-shell in Molden cartesian order
+            iao_off = 0
+            jao = 0
+            do iat = 1, mol%nat
+               do ish = 1, basis%nsh_at(iat)
+                  l = basis%cgto(ish, mol%id(iat))%raw%ang
+                  ! Reorder the coefficients to match the Molden cartesian ordering
+                  call get_molden_cart_perm(l, ncart, perm)
+
+                  do icomp = 1, ncart
+                     jao = jao + 1
+                     write(iwfn,'(i6,1x,ES24.16)') jao, coeff_cart(iao_off + perm(icomp), imo, ispin)
+                  end do
+
+                  iao_off = iao_off + ncart
+               end do
+            end do
+
+            if (jao /= basis%nao_cart) then
+               error stop "[Fatal] Inconsistent AO count while writing Molden [MO] section"
+            end if
+         end do
+      end do
+
+      close(iwfn)
+   end subroutine print_molden
+
+   !> Return the cartesian Molden ordering permutation for one shell.
+   !> The permutation maps tblite's internal coeff_cart shell order
+   !> to the order expected in the Molden [MO] section.
+   subroutine get_molden_cart_perm(l, ncart, perm)
+      integer, intent(in)  :: l
+      integer, intent(out) :: ncart
+      integer, intent(out) :: perm(15)
+
+      perm = 0
+
+      select case(l)
+      case(0)
+         ! s
+         ncart = 1
+         perm(1) = 1
+
+      case(1)
+         ! tblite internal order follows spherical m = -1, 0, +1
+         ! which corresponds to (py, pz, px) in the real-harmonic convention
+         ! consistent with tblite_integral_trafo.
+         ! Molden expects cartesian p order: px, py, pz
+         ncart = 3
+         perm(1:3) = [3, 1, 2]
+
+      case(2)
+         ! tblite internal cartesian d order already matches Molden 6D:
+         ! xx, yy, zz, xy, xz, yz
+         ncart = 6
+         perm(1:6) = [1, 2, 3, 4, 5, 6]
+
+      case(3)
+         ! tblite internal 10F from ftrafo columns:
+         ! xxx, yyy, zzz, xxy, xxz, xyy, yyz, xzz, yzz, xyz
+         !
+         ! Molden 10F expects:
+         ! xxx, yyy, zzz, xyy, xxy, xxz, xzz, yzz, yyz, xyz
+         ncart = 10
+         perm(1:10) = [1, 2, 3, 6, 4, 5, 8, 9, 7, 10]
+
+      case(4)
+         ! tblite internal 15G from gtrafo columns already matches Molden 15G:
+         ! xxxx, yyyy, zzzz, xxxy, xxxz, xyyy, yyyz, xzzz, yzzz,
+         ! xxyy, xxzz, yyzz, xxyz, xyyz, xyzz
+         ncart = 15
+         perm(1:15) = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+      case default
+         error stop "[Fatal] Molden writer only supports angular momenta up to g"
+      end select
+   end subroutine get_molden_cart_perm
+
+end module xtb_tblite_molden
+#endif
 
 

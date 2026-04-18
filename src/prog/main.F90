@@ -324,6 +324,7 @@ contains
          else
             call set_spin(env, cdum)
             call close_file(ich)
+            ! For g-xTB, activate an unrestricted g-xTB calculation with a .UHF file
             tblite%defined_spin = .true.
          end if
       end if
@@ -611,10 +612,14 @@ contains
 
          ! Make sure number of electrons is initialized and multiplicity is consistent
          chk%wfn%nel = nint(sum(mol%z) - mol%chrg)
-         if (mod(mol%uhf, 2) /= mod(chk%wfn%nel, 2)) then
-            call env%terminate("Assigned number of unpaired electrons (flag '--uhf <int>' or <int> in file '.UHF') is not consistent with the total number of electrons")
-         else
+         if (mod(mol%uhf, 2) == mod(chk%wfn%nel, 2)) then
+            ! Restricted closed-shell case
             chk%wfn%nopen = mol%uhf
+         else
+            if (mol%uhf /= 0) then
+               call env%terminate("Assigned number of unpaired electrons (flag '--uhf <int>' or <int> in file '.UHF') is not consistent with the total number of electrons")
+            end if
+            chk%wfn%nopen = mod(int(chk%wfn%nel), 2)
          end if
 
          ! EN charges and CN
@@ -1375,6 +1380,10 @@ contains
             set%verbose = .true.
             set%veryverbose = .true.
 
+         case ('-s', '--silent')
+            set%verbose = .false.
+            set%silent = .true.
+
          case ('--define')
             call set_define
 
@@ -1492,6 +1501,7 @@ contains
             call args%nextArg(sec)
             if (allocated(sec)) then
                call set_spin(env, sec)
+               ! For g-xTB, activate an unrestricted calculation with the --uhf flag
                tblite%defined_spin = .true.
             else
                call env%error("Number of unpaired electrons is not provided", source)
@@ -1540,6 +1550,7 @@ contains
 
          case ('--gxtb')
             call args%nextArg(sec)
+            ! Automatically activate tblite for g-xTB
             call set_exttyp('tblite')
             call set_gfn(env, 'method', 'gxtb')
             tblite%method = "gxtb"
@@ -1698,9 +1709,16 @@ contains
 
          case ('--molden')
             call set_write(env, 'mos', 'true')
+            call args%nextArg(sec)
+            if (allocated(sec)) then
+               call set_write(env, 'molden_thr', sec)
+            end if
 
          case ('--dipole')
             call set_write(env, 'dipole', 'true')
+
+         case ('--quadrupole')
+            call set_write(env, 'quadrupole', 'true')
 
          case ('--wbo')
             call set_write(env, 'wiberg', 'true')
