@@ -116,7 +116,7 @@ srcs += files(
   'peeq_module.f90',
   'pocketscan.f90',
   'pqn.f90',
-  'printmold.f90',
+  'printmold.F90',
   'printout.f90',
   'prmat.f90',
   'pseudodiag.f90',
