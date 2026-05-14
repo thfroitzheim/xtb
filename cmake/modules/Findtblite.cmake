@@ -16,7 +16,7 @@
 
 set(_lib "tblite")
 set(_pkg "TBLITE")
-set(_url "https://github.com/tblite/tblite")
+set(_url "git@github.com:thfroitzheim/save_tblite")
 set(_rev "HEAD")
 
 if(NOT DEFINED "${_pkg}_FIND_METHOD")
