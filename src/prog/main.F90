@@ -1952,9 +1952,28 @@ contains
             if (allocated(sec)) then
                call set_opt(env, 'optlevel', sec)
             end if
+            ! Tighten the SCF convergence by default for optimizations
+            ! if there is no user defined accuracy
+            if (abs(set%acc - 1.0_wp) < epsilon(set%acc)) then
+               ! Tighten the SCF convergence by default for tight optimizations
+               if (set%optset%optlev == 0) then
+                  set%acc = 0.8_wp
+               else if (set%optset%optlev == 1) then
+                  set%acc = 0.5_wp
+               else if (set%optset%optlev >= 2) then
+                  set%acc = 0.2_wp
+               end if
+               tblite%accuracy = set%acc
+            end if
 
          case ('--hess')
             call set_runtyp('hess')
+            ! Tighten the SCF convergence by default for the numerical hessian
+            ! if there is no user defined accuracy
+            if (abs(set%acc - 1.0_wp) < epsilon(set%acc)) then
+               set%acc = 0.2_wp
+               tblite%accuracy = set%acc
+            end if
 
          case ('--md')
             call set_runtyp('md')
@@ -1965,12 +1984,24 @@ contains
             if (allocated(sec)) then
                call set_opt(env, 'optlevel', sec)
             end if
+            ! Tighten the SCF convergence by default for the numerical hessian
+            ! if there is no user defined accuracy
+            if (abs(set%acc - 1.0_wp) < epsilon(set%acc)) then
+               set%acc = 0.2_wp
+               tblite%accuracy = set%acc
+            end if
 
          case ('--bhess')
             call set_runtyp('bhess')
             call args%nextArg(sec)
             if (allocated(sec)) then
                call set_opt(env, 'optlevel', sec)
+            end if
+            ! Tighten the SCF convergence by default for the numerical hessian
+            ! if there is no user defined accuracy
+            if (abs(set%acc - 1.0_wp) < epsilon(set%acc)) then
+               set%acc = 0.2_wp
+               tblite%accuracy = set%acc
             end if
 
          case ('--omd')
@@ -2018,6 +2049,19 @@ contains
             call args%nextArg(sec)
             if (allocated(sec)) then
                call set_opt(env, 'optlevel', sec)
+            end if
+            ! Tighten the SCF convergence by default for optimizations
+            ! if there is no user defined accuracy
+            if (abs(set%acc - 1.0_wp) < epsilon(set%acc)) then
+               ! Tighten the SCF convergence by default for tight optimizations
+               if (set%optset%optlev == 0) then
+                  set%acc = 0.8_wp
+               else if (set%optset%optlev == 1) then
+                  set%acc = 0.5_wp
+               else if (set%optset%optlev >= 2) then
+                  set%acc = 0.2_wp
+               end if
+               tblite%accuracy = set%acc
             end if
 
          case ('--nat')
