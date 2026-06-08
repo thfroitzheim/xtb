@@ -1317,9 +1317,6 @@ subroutine set_write(env,key,val)
    case('mos')
       if (getValue(env,val,ldum).and.set2)  set%pr_molden_input = ldum
       set2 = .false.
-   case('molden_thr')
-      if (getValue(env,val,ddum).and.set3) set%pr_molden_thr = ddum
-      set3 = .false.
    case('lmo')
       if (getValue(env,val,ldum).and.set4)  set%pr_lmo = ldum
       set4 = .false.

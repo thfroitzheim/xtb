@@ -643,9 +643,9 @@ subroutine test_gfn1_mindless_cosmo(error)
    character(len=*), parameter :: mindless(3) = [&
       & "mindless01", "mindless02", "mindless03"]
    real(wp), parameter :: ref_energies(3) = [&
-      & -33.036952137095_wp, -26.848464402907_wp, -25.792048284469_wp]
+      & -33.074347046151_wp, -26.876247100722_wp, -25.840933579128_wp]
    real(wp), parameter :: ref_gnorms(3) = [&
-      &  0.058937174458_wp, 0.070321418330_wp, 0.052262096907_wp]
+      &  0.052710146819_wp, 0.060870212951_wp, 0.052783703080_wp]
    character(len=*), parameter :: solvents(3) = [&
       & "12.0 ", "water", "dmso "]
 
@@ -715,9 +715,9 @@ subroutine test_gfn2_mindless_cosmo(error)
    character(len=*), parameter :: mindless(3) = [&
       & "mindless01", "mindless02", "mindless03"]
    real(wp), parameter :: ref_energies(3) = [&
-      & -30.356424662078_wp, -24.066751782005_wp, -23.707798962536_wp]
+      & -30.388028543875_wp, -24.108634390708_wp, -23.768550127802_wp]
    real(wp), parameter :: ref_gnorms(3) = [&
-      &  0.072996739434_wp, 0.063735506800_wp, 0.048425301852_wp]
+      &  0.064627429484_wp, 0.064871213730_wp, 0.050793611691_wp]
    character(len=*), parameter :: solvents(3) = [&
       & "12.0 ", "water", "dmso "]
 

@@ -118,7 +118,7 @@ list(APPEND srcs
   "${dir}/peeq_module.f90"
   "${dir}/pocketscan.f90"
   "${dir}/pqn.f90"
-  "${dir}/printmold.F90"
+  "${dir}/printmold.f90"
   "${dir}/printout.f90"
   "${dir}/prmat.f90"
   "${dir}/pseudodiag.f90"

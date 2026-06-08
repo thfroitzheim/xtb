@@ -33,14 +33,15 @@ module xtb_tblite_calculator
    use tblite_container, only : container_type
    use tblite_context, only : context_type, context_terminal, escape
    use tblite_external_field, only : electric_field
+   use tblite_features, only : get_tblite_feature
    use tblite_param, only : param_record
    use tblite_post_processing_list, only : add_post_processing, post_processing_list
    use tblite_results, only : results_type
    use tblite_spin, only : spin_polarization, new_spin_polarization
    use tblite_solvation, only : solvation_type, solvation_input, new_solvation, &
       & new_solvation_cds, new_solvation_shift, alpb_input, cds_input, &
-      & shift_input, cpcm_input, born_kernel, solution_state, solvent_data, &
-      & get_solvent_data
+      & shift_input, ddx_input, ddx_solvation_model, born_kernel, solution_state, &
+      & solvent_data, get_solvent_data
    use tblite_wavefunction, only : wavefunction_type, new_wavefunction, &
       & sad_guess, eeq_guess, eeqbc_guess
    use tblite_xtb_calculator, only : xtb_calculator, new_xtb_calculator
@@ -193,7 +194,7 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
    if (allocated(input%param)) then
       call param%load(input%param, error)
       if (.not. allocated(error)) then
-         call new_xtb_calculator(calc%tblite, struc, param, error)
+         call new_xtb_calculator(calc%tblite, struc, param, error, accuracy=calc%accuracy)
       end if
       method = calc%tblite%method
    else
@@ -205,7 +206,7 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
       case("gxtb")
          ! Default for g-xTB is 0K electronic temperature
          if (.not. input%custom_etemp) calc%etemp = 0.0_wp
-         call new_gxtb_calculator(calc%tblite, struc, error, calc%accuracy)
+         call new_gxtb_calculator(calc%tblite, struc, error, accuracy=calc%accuracy)
          ! For g-xTB, we always do a UHF calculation if unpaired electrons
          ! are defined or there is an uneven number of electrons
          if (input%defined_spin) then
@@ -217,11 +218,11 @@ subroutine newTBLiteCalculator(env, mol, calc, input)
             end if
          end if
       case("gfn2")
-         call new_gfn2_calculator(calc%tblite, struc, error, calc%accuracy)
+         call new_gfn2_calculator(calc%tblite, struc, error, accuracy=calc%accuracy)
       case("gfn1")
-         call new_gfn1_calculator(calc%tblite, struc, error, calc%accuracy)
+         call new_gfn1_calculator(calc%tblite, struc, error, accuracy=calc%accuracy)
       case("ipea1")
-         call new_ipea1_calculator(calc%tblite, struc, error, calc%accuracy)
+         call new_ipea1_calculator(calc%tblite, struc, error, accuracy=calc%accuracy)
       case("ceh")
          calc%guess = method
          calc%nspin = 1
@@ -337,7 +338,7 @@ subroutine construct_solv_input(input, solv_input, error)
 
    logical :: parametrized_solvation, alpb
    type(solvent_data), allocatable :: solvent
-   integer :: sol_state, kernel, iostat
+   integer :: sol_state, kernel, iostat, ddx_model
    real(wp) :: val
 
    ! Collect solvent data if a solvent name is provided
@@ -420,13 +421,25 @@ subroutine construct_solv_input(input, solv_input, error)
 
          ! Construct purely electrostatic solvation model input for tblite
          solv_input%alpb = alpb_input(solvent%eps, kernel=kernel, alpb=alpb)
-      case("cosmo")
-         ! ddCOSMO solvation model (currently called CPCM in tblite)
-         if (sol_state /= solution_state%gsolv) then 
-            call fatal_error(error, "Solution state shift not supported for ddCOSMO")
+      case("cosmo", "cpcm", "pcm")
+         if (.not.get_tblite_feature("ddx")) then
+            call fatal_error(error, "ddX solvation support is not available in this build")
             return
          end if
-         solv_input%cpcm = cpcm_input(solvent%eps)
+         ! ddX solvation models
+         if (sol_state /= solution_state%gsolv) then 
+            call fatal_error(error, "Solution state shift not supported for ddX solvation models")
+            return
+         end if
+         if (input%solvation_model == "cosmo") then
+            ddx_model = ddx_solvation_model%cosmo
+         else if (input%solvation_model == "cpcm") then
+            ddx_model = ddx_solvation_model%cpcm
+         else if (input%solvation_model == "pcm") then
+            ddx_model = ddx_solvation_model%pcm
+         end if
+
+         solv_input%ddx = ddx_input(ddx_model, solvent%eps)
       end select
    else
       call fatal_error(error, "No solvation model specified")
@@ -531,7 +544,6 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    real(wp) :: efix
    real(wp), allocatable :: dpmom(:), qpmom(:)
    character(len=:), allocatable :: wbo_label, molmom_label, trafo_label
-   type(wavefunction_type), allocatable :: wfn_aux
 
    struc = mol
    ctx%unit = env%unit
@@ -542,7 +554,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    if (set%pr_wiberg .or. set%pr_wbofrag) then
       ! Wiberg-Mayer bond orders
       wbo_label = "bond-orders"
-      call add_post_processing(post_proc, wbo_label, error)
+      call add_post_processing(post_proc, struc, wbo_label, error)
       if (allocated(error)) then
          call env%error(error%message, source)
          return
@@ -552,17 +564,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    if (set%pr_dipole) then
       ! Molecular multipole moments
       molmom_label = "molmom"
-      call add_post_processing(post_proc, molmom_label, error)
-      if (allocated(error)) then
-         call env%error(error%message, source)
-         return
-      end if
-   end if
-
-   if (set%pr_molden_input) then
-      ! Spherical harmonic to cartesian MO coefficient transformation
-      trafo_label = "trafo"
-      call add_post_processing(post_proc, trafo_label, error)
+      call add_post_processing(post_proc, struc, molmom_label, error)
       if (allocated(error)) then
          call env%error(error%message, source)
          return
@@ -572,18 +574,9 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    ! Needed to update atomic charges after reading restart file
    call get_qat_from_qsh(self%tblite%bas, chk%tblite%qsh, chk%tblite%qat)
 
-   ! Create auxiliary wavefunction and atomic charges
-   if (allocated(self%tblite%charge_model)) then
-      allocate(wfn_aux)
-      call new_wavefunction(wfn_aux, struc%nat, self%tblite%bas%nsh, 0, 1, 0.0_wp, .true.)
-      call get_charges(self%tblite%charge_model, struc, error, wfn_aux%qat(:, 1), &
-         & dqdr=wfn_aux%dqatdr(:, :, :, 1), dqdL=wfn_aux%dqatdL(:, :, :, 1))
-      if (allocated(error)) return
-   end if
-
    call xtb_singlepoint(ctx, struc, self%tblite, chk%tblite, self%accuracy, &
       & energy, gradient, sigma, printlevel, results=results%tblite_results, &
-      & post_process=post_proc, wfn_aux=wfn_aux)
+      & post_process=post_proc)
    if (ctx%failed()) then
       do while(ctx%failed())
          call ctx%get_error(error)

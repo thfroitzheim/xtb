@@ -392,7 +392,6 @@ module xtb_setparam
    character(len=:),allocatable  :: esp_gridfile
    character(len=10) :: lmoinfo_fname='xtblmoinfo'
    logical  :: pr_molden_input = .false.
-   real(wp) :: pr_molden_thr = 2.0_wp
    logical  :: pr_lmo = .false.
    logical  :: pr_local = .true.
    logical  :: pr_density = .false.

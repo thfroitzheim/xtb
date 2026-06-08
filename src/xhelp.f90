@@ -204,6 +204,22 @@ subroutine help(iunit)
    "    available solvents are all solvents that are available for alpb.",&
    "    Additionally, the dielectric constant can be set manually or an ideal conductor", &
    "    can be chosen by setting epsilon to infinity.",&
+   "    Available via tblite or in the legacy version in xtb lacking density response",&
+   "    to the continuum polarization (non-variational).",&
+   "",&
+   "--cpcm SOLVENT/EPSILON",&
+   "    domain decomposition conductor-like polarizable continuum solvation model (ddCPCM),",&
+   "    available solvents are all solvents that are available for alpb.",&
+   "    Additionally, the dielectric constant can be set manually or an ideal conductor", &
+   "    can be chosen by setting epsilon to infinity.",&
+   "    Only available via tblite.",&
+   "",&
+   "--pcm SOLVENT/EPSILON",&
+   "    domain decomposition polarizable continuum model (ddPCM),",&
+   "    available solvents are all solvents that are available for alpb.",&
+   "    Additionally, the dielectric constant can be set manually or an ideal conductor", &
+   "    can be chosen by setting epsilon to infinity.",&
+   "    Only available via tblite.",&
    "",&
    "--tmcosmo SOLVENT/EPSILON",&
    "    same as --cosmo, but uses TM convention for writing the .cosmo files.",&
@@ -219,9 +235,8 @@ subroutine help(iunit)
    "--pop",&
    "    requests printout of Mulliken population analysis",&
    "",&
-   "--molden [THRESHOLD]",&
-   "    requests printout of molden file,", &
-   "    the optional energy threshold limits the printing of virtual orbitals (default: 2 Eh).",&
+   "--molden",&
+   "    requests printout of molden file (name: molden.input),", &
    "",&
    "--dipole",&
    "    requests dipole printout",&

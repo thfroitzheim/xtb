@@ -251,7 +251,7 @@ module xtb_propertyoutput
          end if
          emo = wfx%emo * evtoau
          focc = wfx%focca + wfx%foccb
-         call printmold(mol%n, basis%nao, basis%nbf, mol%xyz, mol%at, C, emo, focc, set%pr_molden_thr, basis)
+         call printmold(mol%n, basis%nao, basis%nbf, mol%xyz, mol%at, C, emo, focc, 2.0_wp, basis)
          write (iunit, '(/,"MOs/occ written to file <molden.input>",/)')
          deallocate (C, focc, emo)
       end if
@@ -286,6 +286,7 @@ module xtb_propertyoutput
 
 
    subroutine tblite_property(iunit, env, wfx, calc, mol, res)
+      use mctc_env, only : error_type
       use mctc_io, only : structure_type
       use xtb_setparam
       use xtb_type_molecule, only: TMolecule, assignment(=)
@@ -297,7 +298,7 @@ module xtb_propertyoutput
 #if WITH_TBLITE
       use tblite_output_ascii, only : ascii_levels, ascii_charges, &
          & ascii_dipole_moments, ascii_quadrupole_moments
-      use xtb_tblite_molden, only : print_molden
+      use tblite_io_molden, only : save_molden
 #endif
 
       implicit none
@@ -318,7 +319,8 @@ module xtb_propertyoutput
 #if WITH_TBLITE
       type(structure_type) :: struc
       integer :: ifile, prlevel
-      real(wp), allocatable :: wbo(:, :, :), coeff_cart(:, :, :), dpmom(:), qpmom(:)
+      real(wp), allocatable :: wbo(:, :, :), dpmom(:), qpmom(:)
+      type(error_type), allocatable :: error
 
       struc = mol
 
@@ -381,12 +383,12 @@ module xtb_propertyoutput
    
       ! Molden file
       if (set%pr_molden_input) then
-         call res%tblite_results%dict%get_entry("cartesian-mos", coeff_cart)
-
-         call print_molden(struc, wfx%tblite, calc%tblite%bas, &
-            & res%tblite_results%bcache, coeff_cart, set%pr_molden_thr)
+         call save_molden("molden.input", struc, calc%tblite%bas, &
+            & res%tblite_results%bcache, wfx%tblite, error)
+         if (allocated(error)) then
+            call env%error("Error writing molden file: "//error%message)
+         end if
          write (iunit, '(/,"MOs/occ written to file <molden.input>",/)')
-         deallocate (coeff_cart)
       end if
 
       ! Dipole moments

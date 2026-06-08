@@ -1709,10 +1709,6 @@ contains
 
          case ('--molden')
             call set_write(env, 'mos', 'true')
-            call args%nextArg(sec)
-            if (allocated(sec)) then
-               call set_write(env, 'molden_thr', sec)
-            end if
 
          case ('--dipole')
             call set_write(env, 'dipole', 'true')
@@ -1857,11 +1853,15 @@ contains
                call env%error("No solvent name or dielectric constant provided for GB.", source)
             end if
 
-         case ('--cosmo', '--tmcosmo')
+         case ('--cosmo', '--cpcm', '--pcm', '--tmcosmo')
             call args%nextArg(sec)
             if (allocated(sec)) then
-               call set_gbsa(env, 'solvent', sec)
-               call set_gbsa(env, flag(3:), 'true')
+               if (flag == "--tmcosmo" .or. flag == "--cosmo") then
+                  call set_gbsa(env, 'solvent', sec)
+                  call set_gbsa(env, flag(3:), 'true')
+               else
+                  call env%warning("--cpcm and --pcm only only supported with tblite (ignored in xtb))")
+               end if
                ! Add solvation model also to tblite input
                if (.not. allocated(tblite%solvation)) then
                   allocate(tblite%solvation)
@@ -1869,7 +1869,13 @@ contains
                if (allocated(tblite%solvation%solvation_model)) then
                   call env%error("Cannot specify multiple solvation models", source)
                end if
-               tblite%solvation%solvation_model = "cosmo"
+               if (flag == "--cosmo") then
+                  tblite%solvation%solvation_model = "cosmo"
+               else if (flag == "--cpcm") then
+                  tblite%solvation%solvation_model = "cpcm"
+               else if (flag == "--pcm") then
+                  tblite%solvation%solvation_model = "pcm"
+               end if
                tblite%solvation%solvent = sec
                ! Read possible reference state
                call args%nextArg(sec)
