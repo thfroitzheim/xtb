@@ -861,10 +861,9 @@ contains
          ! calculation !
          call geometry_optimization &
             &     (env, mol, chk, calc, &
-        &      egap,set%etemp,set%maxscciter,set%optset%maxoptcycle,etot,g,sigma,set%optset%optlev,.true.,.false.,murks, iter_needed)
+        &      egap,set%etemp,set%maxscciter,set%optset%maxoptcycle,etot,g,sigma,set%optset%optlev,.true.,.false.,murks, iter_needed, res)
 
          ! save results !
-         res%e_total = etot
          res%gnorm = norm2(g)
 
          ! constrained optimization !
